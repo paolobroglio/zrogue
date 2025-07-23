@@ -3,8 +3,12 @@ const debug = std.debug;
 const rl = @import("raylib");
 const tileset = @import("tileset.zig");
 const assetstore = @import("assetstore.zig");
+const map = @import("map.zig");
 
 const tile_size = 16.0;
+
+const mapWidth = 80;
+const mapHeight = 45;
 
 const Position = struct {
     x: f32,
@@ -29,11 +33,21 @@ pub fn main() anyerror!void {
     var assets = assetstore.AssetStore.init(allocator);
     try assets.addTexture("tileset", "resources/redjack16x16.png");
 
-    var playerPosition = Position {.x = 400, .y = 250};
+    var playerPosition = Position {
+        .x = @as(f32, @floatFromInt(10)) * tile_size, 
+        .y = @as(f32, @floatFromInt(8)) * tile_size
+    };
 
-    const cp437Tileset = try tileset.Tileset.init("tileset", tileset.GlyphMapType.Cp437, 16);
-    const tileCoordinates = try cp437Tileset.getTileCoordinates('@');
-    const tilesetTexture: rl.Texture2D = try assets.getTexture("tileset"); 
+    const cp437Tileset = try tileset.Tileset.init("tileset", tileset.GlyphMapType.Cp437, tile_size);
+    const tilesetTexture: rl.Texture2D = try assets.getTexture("tileset");
+
+    const playerTileCoordinates = try cp437Tileset.getTileCoordinates('@');
+    const wallTileCoordinates = try cp437Tileset.getTileCoordinates('#');
+    const floorTileCoordinates = try cp437Tileset.getTileCoordinates(' ');
+
+    var gameMap = try map.Map.init(allocator, mapWidth, mapHeight);
+
+    gameMap.createFloorRoom(35, 15, 6, 5);
 
     //--------------------------------------------------------------------------------------
 
@@ -55,7 +69,13 @@ pub fn main() anyerror!void {
         }
         //----------------------------------------------------------------------------------
 
-        const destRect: rl.Rectangle = rl.Rectangle { .x = playerPosition.x, .y = playerPosition.y, .height = tile_size, .width = tile_size};
+        const destRect: rl.Rectangle = rl.Rectangle { 
+            .x = playerPosition.x, 
+            .y = playerPosition.y, 
+            .height = tile_size, 
+            .width = tile_size
+        };
+
         // Draw
         //----------------------------------------------------------------------------------
         rl.beginDrawing();
@@ -63,7 +83,27 @@ pub fn main() anyerror!void {
 
         rl.clearBackground(rl.Color.black);
         
-        rl.drawTexturePro(tilesetTexture, tileCoordinates.rect, destRect, .{.x = 0, .y = 0}, 0.0, rl.Color.ray_white);
+        rl.drawTexturePro(tilesetTexture, playerTileCoordinates.rect, destRect, .{.x = 0, .y = 0}, 0.0, rl.Color.ray_white);
+
+        // MAP DRAWING
+        const tiles_per_row = mapWidth;
+        for (gameMap.tiles.items, 0..) |tile, index| {
+            const x = @as(f32, @floatFromInt(index % tiles_per_row)) * tile_size;
+            const y = @as(f32, @floatFromInt(index / tiles_per_row)) * tile_size;
+            const tileDestRect = rl.Rectangle {
+                .x = x,
+                .y = y,
+                .height = tile_size,
+                .width = tile_size
+            };
+            const srcRect = if (tile.walkable) 
+                floorTileCoordinates.rect
+            else 
+                wallTileCoordinates.rect;
+            
+            
+            rl.drawTexturePro(tilesetTexture, srcRect, tileDestRect, .{.x = 0, .y = 0}, 0.0, rl.Color.white);
+        }
 
         //----------------------------------------------------------------------------------
     }
