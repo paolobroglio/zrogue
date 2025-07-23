@@ -10,19 +10,6 @@ const Position = struct {
     x: f32,
     y: f32
 };
-const TileCoordinates = struct {
-    rect: rl.Rectangle,
-    fn init(vec: rl.Vector2) TileCoordinates {
-        return TileCoordinates { 
-            .rect = rl.Rectangle {
-                .x = vec.x*tile_size, 
-                .y = vec.y*tile_size, 
-                .height = tile_size, 
-                .width = tile_size
-            }   
-        };
-    }
-};
 
 pub fn main() anyerror!void {
     // Initialization
@@ -44,10 +31,9 @@ pub fn main() anyerror!void {
 
     var playerPosition = Position {.x = 400, .y = 250};
 
-    const cp437Tileset = try tileset.Tileset.init("tileset", tileset.GlyphMapType.Cp437, tile_size, tile_size);
-    const tilePosition = try cp437Tileset.getTileCoordinates('@');
+    const cp437Tileset = try tileset.Tileset.init("tileset", tileset.GlyphMapType.Cp437, 16);
+    const tileCoordinates = try cp437Tileset.getTileCoordinates('@');
     const tilesetTexture: rl.Texture2D = try assets.getTexture("tileset"); 
-    const tileCoordinates = TileCoordinates.init(tilePosition);
 
     //--------------------------------------------------------------------------------------
 

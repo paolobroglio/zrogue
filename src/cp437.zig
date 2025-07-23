@@ -279,7 +279,6 @@ const Codepage437Map = [_]CodepageMap{
 fn getCpIndex(char: u8) u8 {
   for (Codepage437Map) |mapping| {
     if (mapping.char == char){
-      std.debug.print("Found char mapping: {d}-{d}\n", .{mapping.char, mapping.cp_index});
       return mapping.cp_index;
     }
   }
@@ -288,10 +287,8 @@ fn getCpIndex(char: u8) u8 {
 
 pub fn getTextureCoordinates(char: u8) rl.Vector2 {
   const cpIndex: f16 = @floatFromInt(getCpIndex(char));
-  std.debug.print("Found cp_index: {d}\n", .{cpIndex});
   const y = @divFloor(cpIndex,tilesPerRows);
   const x = @mod(cpIndex,tilesPerRows);
-  std.debug.print("Computed x: {d} and y: {d}\n", .{x, y});
   return rl.Vector2 {
     .x = x,
     .y = y,

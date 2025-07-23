@@ -9,24 +9,37 @@ const TilesetError = error{
   LoadFailed, CharMapNotFound
 };
 
+const TileCoordinates = struct {
+    rect: rl.Rectangle,
+    fn init(vec: rl.Vector2, tileSize: f32) TileCoordinates {
+        return TileCoordinates { 
+            .rect = rl.Rectangle {
+                .x = vec.x*tileSize, 
+                .y = vec.y*tileSize, 
+                .height = tileSize, 
+                .width = tileSize
+            }   
+        };
+    }
+};
+
 pub const Tileset = struct {
     textureId: []const u8,
     glyph_map_type: GlyphMapType,
-    tile_width: u8,
-    tile_height: u8,
+    tile_size: f32,
 
-    pub fn init(id: []const u8, glyph_map_type: GlyphMapType, tile_width: u8, tile_height: u8) TilesetError!Tileset {
+    pub fn init(id: []const u8, glyph_map_type: GlyphMapType, tile_size: f32) TilesetError!Tileset {
         return Tileset{ 
           .textureId = id, 
           .glyph_map_type = glyph_map_type, 
-          .tile_width = tile_width, 
-          .tile_height = tile_height 
+          .tile_size = tile_size,
         };
     }
-    pub fn getTileCoordinates(self: *const Tileset, char: u8) TilesetError!rl.Vector2 {
+    pub fn getTileCoordinates(self: *const Tileset, char: u8) TilesetError!TileCoordinates {
       switch(self.glyph_map_type) {
         GlyphMapType.Cp437 => {
-          return cp437.getTextureCoordinates(char);
+          const textureCoordinates = cp437.getTextureCoordinates(char);
+          return TileCoordinates.init(textureCoordinates, self.tile_size);
         }
       }
     }
