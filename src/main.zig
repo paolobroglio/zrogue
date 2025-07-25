@@ -45,9 +45,7 @@ pub fn main() anyerror!void {
     const wallTileCoordinates = try cp437Tileset.getTileCoordinates('#');
     const floorTileCoordinates = try cp437Tileset.getTileCoordinates(' ');
 
-    var gameMap = try map.Map.init(allocator, mapWidth, mapHeight);
-
-    gameMap.createFloorRoom(35, 15, 6, 5);
+    const gameMap = try map.Map.generate(allocator, mapWidth, mapHeight);
 
     //--------------------------------------------------------------------------------------
 
