@@ -33,11 +33,6 @@ pub fn main() anyerror!void {
     var assets = assetstore.AssetStore.init(allocator);
     try assets.addTexture("tileset", "resources/redjack16x16.png");
 
-    var playerPosition = Position {
-        .x = @as(f32, @floatFromInt(10)) * tile_size, 
-        .y = @as(f32, @floatFromInt(8)) * tile_size
-    };
-
     const cp437Tileset = try tileset.Tileset.init("tileset", tileset.GlyphMapType.Cp437, tile_size);
     const tilesetTexture: rl.Texture2D = try assets.getTexture("tileset");
 
@@ -45,7 +40,14 @@ pub fn main() anyerror!void {
     const wallTileCoordinates = try cp437Tileset.getTileCoordinates('#');
     const floorTileCoordinates = try cp437Tileset.getTileCoordinates(' ');
 
-    const gameMap = try map.Map.generate(allocator, mapWidth, mapHeight);
+    const game_map = try map.Map.generate(allocator, mapWidth, mapHeight);
+
+    const starting_room = try game_map.startingRoom();
+
+    var playerPosition = Position {
+        .x = starting_room.center().x * tile_size, 
+        .y = starting_room.center().y * tile_size
+    };
 
     //--------------------------------------------------------------------------------------
 
@@ -85,7 +87,7 @@ pub fn main() anyerror!void {
 
         // MAP DRAWING
         const tiles_per_row = mapWidth;
-        for (gameMap.tiles.items, 0..) |tile, index| {
+        for (game_map.tiles.items, 0..) |tile, index| {
             const x = @as(f32, @floatFromInt(index % tiles_per_row)) * tile_size;
             const y = @as(f32, @floatFromInt(index / tiles_per_row)) * tile_size;
             const tileDestRect = rl.Rectangle {

@@ -57,11 +57,18 @@ pub const Room = struct {
     };
   }
 
-  pub fn is_inside(self: *const Room, point: rl.Vector2) bool {
+  pub fn isPointInside(self: *const Room, point: rl.Vector2) bool {
     return point.x >= self.x and
            point.x < self.x + self.width and
            point.y >= self.y and
            point.y < self.y + self.height;
+  }
+
+  pub fn isRoomIntersecting(self: *const Room, other_room: Room) bool {
+    return self.x <= other_room.x + other_room.width and
+    self.x + self.width >= other_room.x and
+    self.y <= other_room.y + other_room.height and
+    self.y + self.height >= other_room.y;
   }
 };
 
@@ -84,6 +91,13 @@ pub const Map = struct {
         return newMap;
     }
 
+    pub fn startingRoom(self: *const Map) !Room {
+      if (self.rooms.items.len > 0){
+        return self.rooms.items[0]; // TODO: make this safer
+      }
+      return Error.MapNotInitialized;
+    }
+
     pub fn coordsToIndex(self: *const Map, x: i32, y: i32) ?usize {
         if (x < 0 or x >= self.width or y < 0 or y >= self.height) {
             return null; // TODO: return error?
@@ -104,7 +118,7 @@ pub const Map = struct {
         return null;
     }
 
-    pub fn createFloorRoom(self: *Map, x: i32, y: i32, width: i32, height: i32) !Room {
+    pub fn createFloorRoom(self: *Map, x: i32, y: i32, width: i32, height: i32) void {
         var row: i32 = y;
         while (row < y + height) : (row += 1) {
             var col: i32 = x;
@@ -112,38 +126,65 @@ pub const Map = struct {
                 self.setTile(col, row, FloorTile);
             }
         }
-        const room = Room{.x = x, .y = y, .width = width, .height = height};
-        try self.rooms.append(Room{.x = x, .y = y, .width = width, .height = height});
-        return room;
     }
 
     pub fn generate(allocator: std.mem.Allocator, width: i32, height: i32) !Map {
-        var gameMap = try init(allocator, width, height);
+        var game_map = try init(allocator, width, height);
 
-        const room1 = try gameMap.createFloorRoom(20, 15, 10, 15);
-        const room2 = try gameMap.createFloorRoom(35, 15, 10, 15);
+        const max_rooms:i32 = 30;
+        const room_max_size: i32 = 10;
+        const room_min_size: i32 = 6;
 
-        gameMap.tunnel_between(room1.center(), room2.center());
+        for (0..max_rooms) |i| {
+          const room_width: i32 = std.crypto.random.intRangeAtMost(i32, room_min_size, room_max_size);
+          const room_height: i32 = std.crypto.random.intRangeAtMost(i32, room_min_size, room_max_size);
 
-        return gameMap;
+          const x = std.crypto.random.intRangeAtMost(i32, 0, width - room_width - 1);
+          const y = std.crypto.random.intRangeAtMost(i32, 0, height - room_height - 1);
+
+          const new_room = Room.init(x, y, room_width, room_height);
+
+          var skip_room = false;
+          for (game_map.rooms.items) |room| {
+            if (room.isRoomIntersecting(new_room)){
+              skip_room = true;
+            }
+          }
+
+          if (skip_room) {
+            continue;
+          }
+
+          game_map.createFloorRoom(x, y, room_width, room_height);
+
+          if (i > 0) { // start carving tunnels from the second room
+            const prev_room_center = game_map.rooms.getLast().center();
+            const new_room_center = new_room.center();
+
+            game_map.tunnelBetween(prev_room_center, new_room_center);
+          }
+
+          try game_map.rooms.append(new_room);
+        }
+        return game_map;
     }
 
-    pub fn tunnel_between(self: *Map, pointA: rl.Vector2, pointB: rl.Vector2) void {
+    pub fn tunnelBetween(self: *Map, pointA: rl.Vector2, pointB: rl.Vector2) void {
         const x1: i32 = @intFromFloat(pointA.x);
         const y1: i32 = @intFromFloat(pointA.y);
         const x2: i32 = @intFromFloat(pointB.x);
         const y2: i32 = @intFromFloat(pointB.y);
 
         if (std.crypto.random.boolean()) {
-            self.carve_horizontal_tunnel(x1, x2, y1);
-            self.carve_vertical_tunnel(y1, y2, x2);
+            self.carveHorizontalTunnel(x1, x2, y1);
+            self.carveVerticalTunnel(y1, y2, x2);
         } else {
-            self.carve_vertical_tunnel(y1, y2, x1);
-            self.carve_horizontal_tunnel(x1, x2, y2);
+            self.carveVerticalTunnel(y1, y2, x1);
+            self.carveHorizontalTunnel(x1, x2, y2);
         }
     }
 
-    fn carve_horizontal_tunnel(self: *Map, x1: i32, x2: i32, y: i32) void {
+    fn carveHorizontalTunnel(self: *Map, x1: i32, x2: i32, y: i32) void {
         const start = @min(x1, x2);
         const end = @max(x1, x2);
         for (@intCast(start)..@intCast(end + 1)) |x| {
@@ -151,7 +192,7 @@ pub const Map = struct {
         }
     }
 
-    fn carve_vertical_tunnel(self: *Map, y1: i32, y2: i32, x: i32) void {
+    fn carveVerticalTunnel(self: *Map, y1: i32, y2: i32, x: i32) void {
         const start = @min(y1, y2);
         const end = @max(y1, y2);
         for (@intCast(start)..@intCast(end + 1)) |y| {
