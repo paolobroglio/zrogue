@@ -14,26 +14,15 @@ pub const TileGraphics = struct {
 };
 
 pub const Tile = struct {
-    walkable: bool,
-    transparent: bool,
-    dark: TileGraphics,
-
-    pub fn init(walkable: bool, transparent: bool, dark: TileGraphics) Tile {
-        return Tile{ .walkable = walkable, .transparent = transparent, .dark = dark };
-    }
+  x: i32,
+  y: i32,
+  walkable: bool,
+  transparent: bool,
+  // Dark for coloring the tile when not in FOV
+  dark: TileGraphics,
+  // Light for coloring the tile when in FOV
+  light: TileGraphics,
 };
-
-pub const FloorTile = Tile{ .walkable = true, .transparent = true, .dark = TileGraphics{
-    .char = ' ',
-    .fgColor = rl.Color.init(255, 255, 255, 255),
-    .bgColor = rl.Color.init(50, 50, 150, 255),
-} };
-
-pub const WallTile = Tile{ .walkable = false, .transparent = false, .dark = TileGraphics{
-    .char = ' ',
-    .fgColor = rl.Color.init(255, 255, 255, 255),
-    .bgColor = rl.Color.init(0, 0, 100, 255),
-} };
 
 pub const Room = struct {
   x: i32,
@@ -86,9 +75,35 @@ pub const Map = struct {
           .rooms = std.ArrayList(Room).init(allocator) 
         };
 
-        try newMap.tiles.appendNTimes(WallTile, @intCast(width * height));
+        for (0..@intCast(height)) |y| {
+          for (0..@intCast(width)) |x| {
+            const wall_tile = Tile{
+              .x = @intCast(x),
+              .y = @intCast(y),
+              .walkable = false, 
+              .transparent = false, 
+              .dark = TileGraphics{
+                .char = ' ',
+                .fgColor = rl.Color.init(255, 255, 255, 255),
+                .bgColor = rl.Color.init(0, 0, 100, 255),
+              },
+              .light = TileGraphics{
+                .char = ' ',
+                .fgColor = rl.Color.init(255, 255, 255, 255),
+                .bgColor = rl.Color.init(130, 110, 50, 255)
+              },
+            };
+
+            try newMap.tiles.append(wall_tile);
+          }
+        }
 
         return newMap;
+    }
+
+    pub fn destroy(self: *const Map) void {
+      self.tiles.deinit();
+      self.rooms.deinit();
     }
 
     pub fn startingRoom(self: *const Map) !Room {
@@ -118,12 +133,32 @@ pub const Map = struct {
         return null;
     }
 
+    pub fn tileExists(self: *const Map, x: i32, y: i32) bool {
+      return self.getTile(x, y) != null;
+    }
+
     pub fn createFloorRoom(self: *Map, x: i32, y: i32, width: i32, height: i32) void {
         var row: i32 = y;
         while (row < y + height) : (row += 1) {
             var col: i32 = x;
             while (col < x + width) : (col += 1) {
-                self.setTile(col, row, FloorTile);
+              const floor_tile = Tile {
+                .x = col,
+                .y = row,
+                .walkable = true, 
+                .transparent = true, 
+                .dark = TileGraphics{
+                  .char = ' ',
+                  .fgColor = rl.Color.init(255, 255, 255, 255),
+                  .bgColor = rl.Color.init(50, 50, 150, 255)
+                },
+                .light = TileGraphics{
+                  .char = ' ',
+                  .fgColor = rl.Color.init(255, 255, 255, 255),
+                  .bgColor = rl.Color.init(200, 180, 50, 255)
+                },
+              };
+              self.setTile(col, row, floor_tile);
             }
         }
     }
@@ -188,7 +223,23 @@ pub const Map = struct {
         const start = @min(x1, x2);
         const end = @max(x1, x2);
         for (@intCast(start)..@intCast(end + 1)) |x| {
-            self.setTile(@intCast(x), y, FloorTile);
+          const floor_tile = Tile {
+            .x = @intCast(x),
+            .y = y,
+            .walkable = true, 
+            .transparent = true, 
+            .dark = TileGraphics{
+              .char = ' ',
+              .fgColor = rl.Color.init(255, 255, 255, 255),
+              .bgColor = rl.Color.init(50, 50, 150, 255)
+            },
+            .light = TileGraphics{
+              .char = ' ',
+              .fgColor = rl.Color.init(255, 255, 255, 255),
+              .bgColor = rl.Color.init(200, 180, 50, 255)
+            },
+          };
+          self.setTile(@intCast(x), y, floor_tile);
         }
     }
 
@@ -196,7 +247,23 @@ pub const Map = struct {
         const start = @min(y1, y2);
         const end = @max(y1, y2);
         for (@intCast(start)..@intCast(end + 1)) |y| {
-            self.setTile(x, @intCast(y), FloorTile);
+          const floor_tile = Tile {
+            .x = x,
+            .y = @intCast(y),
+            .walkable = true, 
+            .transparent = true, 
+            .dark = TileGraphics{
+              .char = ' ',
+              .fgColor = rl.Color.init(255, 255, 255, 255),
+              .bgColor = rl.Color.init(50, 50, 150, 255)
+            },
+            .light = TileGraphics{
+              .char = ' ',
+              .fgColor = rl.Color.init(255, 255, 255, 255),
+              .bgColor = rl.Color.init(200, 180, 50, 255)
+            },
+          };
+          self.setTile(x, @intCast(y), floor_tile);
         }
     }
 };

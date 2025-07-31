@@ -4,16 +4,24 @@ const rl = @import("raylib");
 const tileset = @import("tileset.zig");
 const assetstore = @import("assetstore.zig");
 const map = @import("map.zig");
+const fov = @import("fov.zig");
 
 const tile_size = 16.0;
 
 const mapWidth = 80;
-const mapHeight = 45;
+const mapHeight = 50;
 
 const Position = struct {
     x: f32,
     y: f32
 };
+
+fn playerPositionToTilePosition(pos: Position) fov.Point {
+    return fov.Point{
+        .x = @intFromFloat(pos.x / tile_size),
+        .y = @intFromFloat(pos.y / tile_size),
+    };
+}
 
 pub fn main() anyerror!void {
     // Initialization
@@ -41,6 +49,7 @@ pub fn main() anyerror!void {
     const floorTileCoordinates = try cp437Tileset.getTileCoordinates(' ');
 
     const game_map = try map.Map.generate(allocator, mapWidth, mapHeight);
+    defer game_map.destroy();
 
     const starting_room = try game_map.startingRoom();
 
@@ -67,8 +76,9 @@ pub fn main() anyerror!void {
         if (rl.isKeyPressed(.down)) {
             playerPosition.y += tile_size;
         }
-        //----------------------------------------------------------------------------------
 
+        var visible_tiles = try fov.computeFOV(allocator, playerPositionToTilePosition(playerPosition), 5, game_map);
+        
         const destRect: rl.Rectangle = rl.Rectangle { 
             .x = playerPosition.x, 
             .y = playerPosition.y, 
@@ -86,26 +96,63 @@ pub fn main() anyerror!void {
         rl.drawTexturePro(tilesetTexture, playerTileCoordinates.rect, destRect, .{.x = 0, .y = 0}, 0.0, rl.Color.ray_white);
 
         // MAP DRAWING
-        const tiles_per_row = mapWidth;
+        //const tiles_per_row = mapWidth;
+        // debug.print("Visible tiles count: {}\n", .{visible_tiles.count()});
+        // var iter = visible_tiles.keyIterator();
+        // while (iter.next()) |point| {
+        //     const pt = point.*;
+        //     if (pt.x < 0 or pt.x >= mapWidth or pt.y < 0 or pt.y >= mapHeight) {
+        //         debug.print("Skipped out-of-bounds tile ({}, {})\n", .{pt.x, pt.y});
+        //         continue;
+        //     }
+
+        //     const tile = game_map.getTile(pt.x, pt.y) orelse continue;
+
+        //     const x = @as(f32, @floatFromInt(pt.x)) * tile_size;
+        //     const y = @as(f32, @floatFromInt(pt.y)) * tile_size;
+        //     const tileDestRect = rl.Rectangle {
+        //         .x = x,
+        //         .y = y,
+        //         .height = tile_size,
+        //         .width = tile_size
+        //     };
+        //     const srcRect = if (tile.walkable) 
+        //         floorTileCoordinates.rect
+        //     else 
+        //         wallTileCoordinates.rect;
+            
+        //     //debug.print("drawing tile at position: ({}, {}), walkable={}, srcRect={}, destRect={}\n", .{pt.x, pt.y, tile.walkable, srcRect, destRect});
+        //     rl.drawTexturePro(tilesetTexture, srcRect, tileDestRect, .{.x = 0, .y = 0}, 0.0, rl.Color.white);
+        // }
         for (game_map.tiles.items, 0..) |tile, index| {
-            const x = @as(f32, @floatFromInt(index % tiles_per_row)) * tile_size;
-            const y = @as(f32, @floatFromInt(index / tiles_per_row)) * tile_size;
+            const x = @as(f32, @floatFromInt(index % mapWidth)) * tile_size;
+            const y = @as(f32, @floatFromInt(index / mapWidth)) * tile_size;
+            
             const tileDestRect = rl.Rectangle {
                 .x = x,
                 .y = y,
                 .height = tile_size,
                 .width = tile_size
             };
-            const srcRect = if (tile.walkable) 
+            const tileSrcRect = if (tile.walkable) 
                 floorTileCoordinates.rect
             else 
                 wallTileCoordinates.rect;
-            
-            
-            rl.drawTexturePro(tilesetTexture, srcRect, tileDestRect, .{.x = 0, .y = 0}, 0.0, rl.Color.white);
+
+            rl.drawTexturePro(tilesetTexture, tileSrcRect, tileDestRect, .{.x = 0, .y = 0}, 0.0, rl.Color.ray_white);
+
+            const point = fov.Point{.x = tile.x, .y = tile.y};
+            if (visible_tiles.contains(point)) {
+                if (x > screenWidth or y > screenHeight) {
+                    debug.print("WARNING: Tile at ({}, {}) off screen\n", .{x, y});
+                }
+                const fov_color = rl.colorAlpha(rl.Color.dark_green, 0.5);
+                rl.drawRectangle(@intFromFloat(x), @intFromFloat(y), tile_size, tile_size, fov_color);
+            }
         }
 
         //----------------------------------------------------------------------------------
+        visible_tiles.clearRetainingCapacity();
     }
 
     assets.deinit();

@@ -1,5 +1,9 @@
 const std = @import("std");
 
+const test_targets = [_]std.Target.Query{
+    .{}, // native
+};
+
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -34,7 +38,13 @@ pub fn build(b: *std.Build) !void {
         return;
     }
 
-    const exe = b.addExecutable(.{ .name = "zrogue", .root_source_file = b.path("src/main.zig"), .optimize = optimize, .target = target });
+    const exe = b.addExecutable(.{ 
+            .name = "zrogue", 
+            .root_source_file = b.path("src/main.zig"), 
+            .optimize = optimize, 
+            .target = target 
+        }
+    );
 
     exe.linkLibrary(raylib_artifact);
     exe.root_module.addImport("raylib", raylib);
@@ -42,6 +52,21 @@ pub fn build(b: *std.Build) !void {
     const run_cmd = b.addRunArtifact(exe);
     const run_step = b.step("run", "Run zrogue");
     run_step.dependOn(&run_cmd.step);
+
+    const test_step = b.step("test", "Run unit tests");
+
+    for (test_targets) |test_target| {
+        const unit_tests = b.addTest(.{
+            .root_source_file = b.path("src/tests.zig"),
+            .target = b.resolveTargetQuery(test_target),
+        });
+
+        unit_tests.root_module.addImport("raylib", raylib);
+        unit_tests.linkLibrary(raylib_artifact);
+
+        const run_unit_tests = b.addRunArtifact(unit_tests);
+        test_step.dependOn(&run_unit_tests.step);
+    }
 
     b.installArtifact(exe);
 }
