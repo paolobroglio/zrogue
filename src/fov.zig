@@ -20,9 +20,15 @@ fn pointsWithinRadius(allocator: std.mem.Allocator, center: Point, radius: i32) 
 
   const radius_squared: i32 = radius * radius;
 
-  for (@intCast(center.y - radius)..@intCast(center.y + radius + 1)) |y_size| {
+
+  const min_y = @max(center.y - radius, 0);
+  const max_y = center.y + radius + 1;
+
+  for (@intCast(min_y)..@intCast(max_y)) |y_size| {
     const y: i32 = @intCast(y_size);
-    for (@intCast(center.x - radius)..@intCast(center.x + radius + 1)) |x_size| {
+    const min_x = @max(center.x - radius, 0);
+    const max_x = center.x + radius + 1;
+    for (@intCast(min_x)..@intCast(max_x)) |x_size| {
       const x: i32 = @intCast(x_size);
       const dx: i32 = x - center.x;
       const dy: i32 = y - center.y;
@@ -33,21 +39,11 @@ fn pointsWithinRadius(allocator: std.mem.Allocator, center: Point, radius: i32) 
       }
     }
   }
-
-  // for (points.items) |point| {
-  //   debug.print("Point ({}, {})\n", .{
-  //       point.x,
-  //       point.y
-  //   });
-  // }
-
   return points;
 }
 
 
 pub fn castRay(allocator: std.mem.Allocator, start: Point, end: Point, m: map.Map) !ArrayList(Point) {
-  //debug.print("Start: ({}, {}); End: ({}, {})\n", .{start.x, start.y, end.x, end.y});
-
   var visited_tiles_coordinates = ArrayList(Point).init(allocator);
 
   // starting points
@@ -89,30 +85,14 @@ pub fn castRay(allocator: std.mem.Allocator, start: Point, end: Point, m: map.Ma
     }
   }
 
-  // for (visited_tiles_coordinates.items) |point| {
-  //   debug.print("Tile coordinate: ({},{})\n", .{
-  //       point.x,
-  //       point.y
-  //   });
-  // }
-
   return visited_tiles_coordinates;
 }
 
 pub fn computeFOV(allocator: std.mem.Allocator, center: Point, radius: i32, m: map.Map) !std.AutoHashMap(Point, void) {
-
-  // TODO: maybe i also need invisible tile list?
   var visible = std.AutoHashMap(Point, void).init(allocator);
 
   const candidates = try pointsWithinRadius(allocator, center, radius);
   defer candidates.deinit();
-
-  // for (candidates.items) |point| {
-  //   debug.print("Point ({}, {})\n", .{
-  //       point.x,
-  //       point.y
-  //   });
-  // }
 
   for (candidates.items) |target| {
       var ray_tiles_coordinates = try castRay(allocator,center, target, m);
@@ -161,6 +141,15 @@ test "points within radius" {
     defer points.deinit();
 
     try std.testing.expect(points.items.len == 5);
+}
+
+test "points within radius with clamped values" {
+    const allocator = std.testing.allocator;
+    const center = Point{ .x = 5, .y = 5 };
+    const radius: i32 = 6;
+
+    var points = try pointsWithinRadius(allocator, center, radius);
+    defer points.deinit();
 }
 
 test "compute FOV" {

@@ -46,7 +46,7 @@ pub fn main() anyerror!void {
 
     const playerTileCoordinates = try cp437Tileset.getTileCoordinates('@');
     const wallTileCoordinates = try cp437Tileset.getTileCoordinates('#');
-    const floorTileCoordinates = try cp437Tileset.getTileCoordinates(' ');
+    const floorTileCoordinates = try cp437Tileset.getTileCoordinates('`');
 
     const game_map = try map.Map.generate(allocator, mapWidth, mapHeight);
     defer game_map.destroy();
@@ -139,14 +139,13 @@ pub fn main() anyerror!void {
             else 
                 wallTileCoordinates.rect;
 
-            rl.drawTexturePro(tilesetTexture, tileSrcRect, tileDestRect, .{.x = 0, .y = 0}, 0.0, rl.Color.ray_white);
-
             const point = fov.Point{.x = tile.x, .y = tile.y};
             if (visible_tiles.contains(point)) {
                 if (x > screenWidth or y > screenHeight) {
                     debug.print("WARNING: Tile at ({}, {}) off screen\n", .{x, y});
                 }
                 const fov_color = rl.colorAlpha(rl.Color.dark_green, 0.5);
+                rl.drawTexturePro(tilesetTexture, tileSrcRect, tileDestRect, .{.x = 0, .y = 0}, 0.0, rl.Color.ray_white);
                 rl.drawRectangle(@intFromFloat(x), @intFromFloat(y), tile_size, tile_size, fov_color);
             }
         }
