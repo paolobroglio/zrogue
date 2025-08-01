@@ -125,10 +125,44 @@ pub fn main() anyerror!void {
                 if (x > screenWidth or y > screenHeight) {
                     debug.print("WARNING: Tile at ({}, {}) off screen\n", .{x, y});
                 }
-                rl.drawTexturePro(tilesetTexture, tileSrcRect, tileDestRect, .{.x = 0, .y = 0}, 0.0, rl.Color.ray_white);
+                //const fg_color = tile.light.fgColor;
+                const bg_color = tile.light.bgColor;
+                // background
+                rl.drawTexturePro(
+                    tilesetTexture, 
+                    tileSrcRect, 
+                    tileDestRect, 
+                    .{.x = 0, .y = 0}, 
+                    0.0, 
+                    bg_color
+                );
+                // foreground
+                // rl.drawTexturePro(
+                //     tilesetTexture, 
+                //     tileSrcRect, 
+                //     tileDestRect, 
+                //     .{.x = 0, .y = 0}, 
+                //     0.0, 
+                //     fg_color
+                // );
             } else {
                 if (visited_tiles.contains(point)) {
-                    rl.drawTexturePro(tilesetTexture, tileSrcRect, tileDestRect, .{.x = 0, .y = 0}, 0.0, rl.Color.green);
+                    //const fg_color = tile.dark.fgColor;
+                    const bg_color = tile.dark.bgColor;
+                    rl.drawTexturePro(
+                        tilesetTexture,
+                        tileSrcRect,
+                        tileDestRect,
+                        .{.x = 0, .y = 0}, 
+                        0.0, 
+                        bg_color);
+                    // rl.drawTexturePro(
+                    //     tilesetTexture, 
+                    //     tileSrcRect, 
+                    //     tileDestRect,
+                    //     .{.x = 0, .y = 0}, 
+                    //     0.0, 
+                    //     fg_color);
                 }
             }
         }
