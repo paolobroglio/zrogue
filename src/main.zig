@@ -95,35 +95,6 @@ pub fn main() anyerror!void {
         
         rl.drawTexturePro(tilesetTexture, playerTileCoordinates.rect, destRect, .{.x = 0, .y = 0}, 0.0, rl.Color.ray_white);
 
-        // MAP DRAWING
-        //const tiles_per_row = mapWidth;
-        // debug.print("Visible tiles count: {}\n", .{visible_tiles.count()});
-        // var iter = visible_tiles.keyIterator();
-        // while (iter.next()) |point| {
-        //     const pt = point.*;
-        //     if (pt.x < 0 or pt.x >= mapWidth or pt.y < 0 or pt.y >= mapHeight) {
-        //         debug.print("Skipped out-of-bounds tile ({}, {})\n", .{pt.x, pt.y});
-        //         continue;
-        //     }
-
-        //     const tile = game_map.getTile(pt.x, pt.y) orelse continue;
-
-        //     const x = @as(f32, @floatFromInt(pt.x)) * tile_size;
-        //     const y = @as(f32, @floatFromInt(pt.y)) * tile_size;
-        //     const tileDestRect = rl.Rectangle {
-        //         .x = x,
-        //         .y = y,
-        //         .height = tile_size,
-        //         .width = tile_size
-        //     };
-        //     const srcRect = if (tile.walkable) 
-        //         floorTileCoordinates.rect
-        //     else 
-        //         wallTileCoordinates.rect;
-            
-        //     //debug.print("drawing tile at position: ({}, {}), walkable={}, srcRect={}, destRect={}\n", .{pt.x, pt.y, tile.walkable, srcRect, destRect});
-        //     rl.drawTexturePro(tilesetTexture, srcRect, tileDestRect, .{.x = 0, .y = 0}, 0.0, rl.Color.white);
-        // }
         for (game_map.tiles.items, 0..) |tile, index| {
             const x = @as(f32, @floatFromInt(index % mapWidth)) * tile_size;
             const y = @as(f32, @floatFromInt(index / mapWidth)) * tile_size;
@@ -144,9 +115,7 @@ pub fn main() anyerror!void {
                 if (x > screenWidth or y > screenHeight) {
                     debug.print("WARNING: Tile at ({}, {}) off screen\n", .{x, y});
                 }
-                const fov_color = rl.colorAlpha(rl.Color.dark_green, 0.5);
                 rl.drawTexturePro(tilesetTexture, tileSrcRect, tileDestRect, .{.x = 0, .y = 0}, 0.0, rl.Color.ray_white);
-                rl.drawRectangle(@intFromFloat(x), @intFromFloat(y), tile_size, tile_size, fov_color);
             }
         }
 

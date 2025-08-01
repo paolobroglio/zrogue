@@ -98,8 +98,8 @@ pub fn computeFOV(allocator: std.mem.Allocator, center: Point, radius: i32, m: m
       var ray_tiles_coordinates = try castRay(allocator,center, target, m);
       for (ray_tiles_coordinates.items) |coordinate_point| {
         const tile = m.getTile(coordinate_point.x, coordinate_point.y).?;
-        if (!tile.transparent) break;
         try visible.put(coordinate_point, {});
+        if (!tile.transparent) break;
       }
       ray_tiles_coordinates.deinit();
   }
