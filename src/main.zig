@@ -11,12 +11,7 @@ const tile_size = 16.0;
 const mapWidth = 80;
 const mapHeight = 50;
 
-const Position = struct {
-    x: f32,
-    y: f32
-};
-
-fn playerPositionToTilePosition(pos: Position) fov.Point {
+fn playerPositionToTilePosition(pos: rl.Vector2) fov.Point {
     return fov.Point{
         .x = @intFromFloat(pos.x / tile_size),
         .y = @intFromFloat(pos.y / tile_size),
@@ -53,10 +48,13 @@ pub fn main() anyerror!void {
 
     const starting_room = try game_map.startingRoom();
 
-    var playerPosition = Position {
+    var player_position = rl.Vector2 {
         .x = starting_room.center().x * tile_size, 
         .y = starting_room.center().y * tile_size
     };
+
+    var visited_tiles = std.AutoHashMap(fov.Point, void).init(allocator);
+    defer visited_tiles.deinit();
 
     //--------------------------------------------------------------------------------------
 
@@ -64,24 +62,36 @@ pub fn main() anyerror!void {
     while (!rl.windowShouldClose()) {
         // Update
         //----------------------------------------------------------------------------------
+        var target_position = player_position;
         if (rl.isKeyPressed(.right)) {
-            playerPosition.x += tile_size;
+            target_position.x += tile_size;
         }
         if (rl.isKeyPressed(.left)) {
-            playerPosition.x -= tile_size;
+            target_position.x -= tile_size;
         }
         if (rl.isKeyPressed(.up)) {
-            playerPosition.y -= tile_size;
+            target_position.y -= tile_size;
         }
         if (rl.isKeyPressed(.down)) {
-            playerPosition.y += tile_size;
+            target_position.y += tile_size;
         }
 
-        var visible_tiles = try fov.computeFOV(allocator, playerPositionToTilePosition(playerPosition), 5, game_map);
-        
+        var target_player_point: fov.Point = playerPositionToTilePosition(target_position);
+        if (game_map.getTile(target_player_point.x, target_player_point.y).?.walkable) {
+            player_position = target_position;
+        } else {
+            target_player_point = playerPositionToTilePosition(player_position);
+        }
+
+        var visible_tiles = try fov.computeFOV(allocator, target_player_point, 5, game_map);
+        var it = visible_tiles.iterator();
+        while (it.next())|entry| {
+            try visited_tiles.put(entry.key_ptr.*, {});
+        }
+
         const destRect: rl.Rectangle = rl.Rectangle { 
-            .x = playerPosition.x, 
-            .y = playerPosition.y, 
+            .x = player_position.x, 
+            .y = player_position.y, 
             .height = tile_size, 
             .width = tile_size
         };
@@ -116,6 +126,10 @@ pub fn main() anyerror!void {
                     debug.print("WARNING: Tile at ({}, {}) off screen\n", .{x, y});
                 }
                 rl.drawTexturePro(tilesetTexture, tileSrcRect, tileDestRect, .{.x = 0, .y = 0}, 0.0, rl.Color.ray_white);
+            } else {
+                if (visited_tiles.contains(point)) {
+                    rl.drawTexturePro(tilesetTexture, tileSrcRect, tileDestRect, .{.x = 0, .y = 0}, 0.0, rl.Color.green);
+                }
             }
         }
 
