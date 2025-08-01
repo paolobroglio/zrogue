@@ -8,8 +8,8 @@ const fov = @import("fov.zig");
 
 const tile_size = 16.0;
 
-const mapWidth = 80;
-const mapHeight = 50;
+const map_width = 80;
+const map_height = 50;
 
 fn playerPositionToTilePosition(pos: rl.Vector2) fov.Point {
     return fov.Point{
@@ -21,12 +21,12 @@ fn playerPositionToTilePosition(pos: rl.Vector2) fov.Point {
 pub fn main() anyerror!void {
     // Initialization
     //--------------------------------------------------------------------------------------
-    const screenWidth = 1280;
-    const screenHeight = 800;
+    const screen_width = 1280;
+    const screen_height = 800;
 
     rl.setConfigFlags(.{.window_highdpi = true, .window_resizable = false, .vsync_hint = true});
 
-    rl.initWindow(screenWidth, screenHeight, "ZRogue");
+    rl.initWindow(screen_width, screen_height, "ZRogue");
     defer rl.closeWindow();
 
     rl.setTargetFPS(60);
@@ -43,7 +43,7 @@ pub fn main() anyerror!void {
     const wallTileCoordinates = try cp437Tileset.getTileCoordinates('#');
     const floorTileCoordinates = try cp437Tileset.getTileCoordinates('`');
 
-    const game_map = try map.Map.generate(allocator, mapWidth, mapHeight);
+    const game_map = try map.Map.generate(allocator, map_width, map_height);
     defer game_map.destroy();
 
     const starting_room = try game_map.startingRoom();
@@ -106,8 +106,8 @@ pub fn main() anyerror!void {
         rl.drawTexturePro(tilesetTexture, playerTileCoordinates.rect, destRect, .{.x = 0, .y = 0}, 0.0, rl.Color.ray_white);
 
         for (game_map.tiles.items, 0..) |tile, index| {
-            const x = @as(f32, @floatFromInt(index % mapWidth)) * tile_size;
-            const y = @as(f32, @floatFromInt(index / mapWidth)) * tile_size;
+            const x = @as(f32, @floatFromInt(index % map_width)) * tile_size;
+            const y = @as(f32, @floatFromInt(index / map_width)) * tile_size;
             
             const tileDestRect = rl.Rectangle {
                 .x = x,
@@ -122,7 +122,7 @@ pub fn main() anyerror!void {
 
             const point = fov.Point{.x = tile.x, .y = tile.y};
             if (visible_tiles.contains(point)) {
-                if (x > screenWidth or y > screenHeight) {
+                if (x > screen_width or y > screen_height) {
                     debug.print("WARNING: Tile at ({}, {}) off screen\n", .{x, y});
                 }
                 //const fg_color = tile.light.fgColor;
