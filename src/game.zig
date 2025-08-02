@@ -6,7 +6,7 @@ const tileset = @import("tileset.zig");
 const fov = @import("fov.zig");
 const rl = @import("raylib");
 
-pub const Error = enum {
+pub const Error = error {
   InitializationFailed, 
   DeinitializationFailed, 
   RunFailed,
@@ -35,7 +35,7 @@ pub const Game = struct {
 
   player_position: rl.Vector2,
 
-  pub fn init(allocator: std.mem.Allocator) Error!Game {
+  pub fn init(allocator: std.mem.Allocator) Game {
     return Game {
       .allocator = allocator,
       .window_width = 1280,
@@ -52,7 +52,7 @@ pub const Game = struct {
       .player_position = rl.Vector2.zero(),
     };
   }
-  pub fn deinit(self: *Game) Error!void {
+  pub fn deinit(self: *Game) void {
     rl.closeWindow();
     self.asset_store.deinit();
     self.game_map.destroy();
@@ -68,26 +68,36 @@ pub const Game = struct {
     rl.initWindow(self.window_width, self.window_height, "ZRogue");
     rl.setTargetFPS(self.fps);
 
-    try self.asset_store.addTexture("tileset", "resources/redjack16x16.png");
-    self.game_map = try map.Map.generate(self.allocator, 80, 50);
-    self.tileset = try tileset.Tileset.init("tileset", tileset.GlyphMapType.Cp437, 16.0);
+    self.asset_store.addTexture("tileset", "resources/redjack16x16.png") catch |err| {
+      std.log.err("Error adding texture: {}", .{err});
+      return Error.InitializationFailed;
+    };
+    self.game_map = map.Map.generate(self.allocator, 80, 50) catch |err| {
+      std.log.err("Error generating map: {}", .{err});
+      return Error.InitializationFailed;
+    };
+    self.tileset = tileset.Tileset.init("tileset", tileset.GlyphMapType.Cp437, 16.0) catch |err| {
+      std.log.err("Error initiliazing tileset: {}", .{err});
+      return Error.InitializationFailed;
+    };
 
-    const starting_room = try self.game_map.startingRoom();
+    const starting_room = self.game_map.startingRoom() catch |err| {
+      std.log.err("Error getting the starting room: {}", .{err});
+      return Error.InitializationFailed;
+    };
     self.player_position = rl.Vector2 {
         .x = starting_room.center().x * self.tileset.tile_size, 
         .y = starting_room.center().y * self.tileset.tile_size
     };
   }
-  pub fn run(self: *const Game) Error!void {
-    self.setup();
-    const execute_loop = !rl.windowShouldClose() and self.is_running;
-    while (execute_loop) {
-      self.processInput();
-      self.update();
-      self.render();
+  pub fn run(self: *Game) Error!void {
+    self.is_running = true;
+    try self.setup();
+    while (!rl.windowShouldClose()) {
+      try self.update();
+      try self.render();
     }
   }
-  fn processInput() Error!void {}
   fn update(self: *Game) Error!void {
     const tile_size = self.tileset.tile_size;
     var target_position = self.player_position;
@@ -103,24 +113,43 @@ pub const Game = struct {
     if (rl.isKeyPressed(.down)) {
       target_position.y += tile_size;
     }
-    var target_player_point: fov.Point = playerPositionToTilePosition(target_position);
-    if (self.game_map.getTile(target_player_point.x, target_player_point.y).?.walkable) {
+    var target_player_point: fov.Point = self.playerPositionToTilePosition(target_position);
+    const target_tile = self.game_map.getTile(target_player_point.x, target_player_point.y);
+    if (target_tile != null and target_tile.?.walkable) {
       self.player_position = target_position;
     } else {
-      target_player_point = playerPositionToTilePosition(self.player_position);
+      target_player_point = self.playerPositionToTilePosition(self.player_position);
     }
-
-    var visible_tiles = try fov.computeFOV(self.allocator, target_player_point, 5, self.game_map);
-    var it = visible_tiles.iterator();
+    self.visible_tiles_points.clearAndFree();
+    self.visible_tiles_points = fov.computeFOV(self.allocator, target_player_point, 5, self.game_map) catch |err| {
+      std.log.err("Error computing FOV: {}", .{err});
+      return Error.RunFailed;
+    };
+    var it = self.visible_tiles_points.iterator();
     while (it.next())|entry| {
-      try self.visited_tiles_points.put(entry.key_ptr.*, {});
+      self.visited_tiles_points.put(entry.key_ptr.*, {}) catch |err| {
+        std.log.err("Error adding a visited tile point: {}", .{err});
+        return Error.RunFailed;
+      };
     }
   }
   fn render(self: *Game) Error!void {
-    const tileset_texture: rl.Texture2D = try self.asset_store.getTexture("tileset");
-    const player_tile_coordinates = try self.tileset.getTileCoordinates('@');
-    const wall_tile_coordinates = try self.tileset.getTileCoordinates('#');
-    const floor_tile_coordinates = try self.tileset.getTileCoordinates('`');
+    const tileset_texture: rl.Texture2D = self.asset_store.getTexture("tileset") catch |err| {
+      std.log.err("Error getting texture for tileset: {}", .{err});
+      return Error.RenderingFailed;
+    };
+    const player_tile_coordinates = self.tileset.getTileCoordinates('@') catch |err| {
+      std.log.err("Error getting texture coordinates for player: {}", .{err});
+      return Error.RenderingFailed;
+    };
+    const wall_tile_coordinates = self.tileset.getTileCoordinates('#') catch |err| {
+      std.log.err("Error getting texture coordinates for wall: {}", .{err});
+      return Error.RenderingFailed;
+    };
+    const floor_tile_coordinates = self.tileset.getTileCoordinates('`') catch |err| {
+      std.log.err("Error getting texture coordinates for floor: {}", .{err});
+      return Error.RenderingFailed;
+    };
 
     rl.beginDrawing();
     defer rl.endDrawing();
@@ -145,8 +174,9 @@ pub const Game = struct {
 
     // DRAW MAP
     for (self.game_map.tiles.items, 0..) |tile, index| {
-      const x = @as(f32, @floatFromInt(index % self.map_width)) * self.tileset.tile_size;
-      const y = @as(f32, @floatFromInt(index / self.map_width)) * self.tileset.tile_size;
+      const map_width: usize = @intCast(self.game_map.width);
+      const x = @as(f32, @floatFromInt(index % map_width)) * self.tileset.tile_size;
+      const y = @as(f32, @floatFromInt(index / map_width)) * self.tileset.tile_size;
             
       const tile_dest_rect = rl.Rectangle {
           .x = x,
@@ -161,9 +191,6 @@ pub const Game = struct {
 
       const point = fov.Point{.x = tile.x, .y = tile.y};
       if (self.visible_tiles_points.contains(point)) {
-        if (x > self.window_width or y > self.window_height) {
-            debug.print("WARNING: Tile at ({}, {}) off screen\n", .{x, y});
-        }
         const bg_color = tile.light.bgColor;
         // background
         rl.drawTexturePro(

@@ -20,7 +20,7 @@ pub const AssetStore = struct {
     self.textures.deinit();
   }
   pub fn addTexture(self: *AssetStore, texture_id: []const u8, texture_path: [:0]const u8) !void {
-    const owned_key = try self.allocator.dupe(u8, rl.Texture2D);
+    const owned_key = try self.allocator.dupe(u8, texture_id);
     errdefer self.allocator.free(owned_key);
 
     const texture = rl.loadTexture(texture_path) catch |err| {
@@ -28,7 +28,7 @@ pub const AssetStore = struct {
       return err;
     };
 
-    try self.textures.put(texture_id, texture);
+    try self.textures.put(owned_key, texture);
   }
   pub fn getTexture(self: *const AssetStore, texture_id: []const u8) Error!rl.Texture2D {
     return self.textures.get(texture_id) orelse Error.AssetNotFound;
