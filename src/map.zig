@@ -197,6 +197,9 @@ pub const Map = struct {
             const new_room_center = new_room.center();
 
             game_map.tunnelBetween(prev_room_center, new_room_center);
+
+            // Add enemies
+            
           }
 
           try game_map.rooms.append(new_room);
