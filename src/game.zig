@@ -4,6 +4,7 @@ const as = @import("assetstore.zig");
 const map = @import("map.zig");
 const tileset = @import("tileset.zig");
 const fov = @import("fov.zig");
+const enmy = @import("enemy.zig");
 const rl = @import("raylib");
 
 pub const Error = error{ InitializationFailed, DeinitializationFailed, RunFailed, InputHandlingFailed, RenderingFailed, UpdateFailed };
@@ -27,6 +28,7 @@ pub const Game = struct {
     visible_tiles_points: std.AutoHashMap(fov.Point, void),
 
     player_position: rl.Vector2,
+    enemies: std.ArrayList(enmy.Enemy),
 
     pub fn init(allocator: std.mem.Allocator) Game {
         return Game{
@@ -43,6 +45,7 @@ pub const Game = struct {
             .visible_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator),
             .visited_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator),
             .player_position = rl.Vector2.zero(),
+            .enemies = std.ArrayList(enmy.Enemy).init(allocator)
         };
     }
     pub fn deinit(self: *Game) void {
@@ -51,6 +54,7 @@ pub const Game = struct {
         self.game_map.destroy();
         self.visited_tiles_points.deinit();
         self.visible_tiles_points.deinit();
+        self.enemies.deinit();
     }
     fn setup(self: *Game) Error!void {
         rl.setConfigFlags(.{ .window_highdpi = self.highdpi, .window_resizable = false, .vsync_hint = self.vsync });
@@ -61,7 +65,7 @@ pub const Game = struct {
             std.log.err("Error adding texture: {}", .{err});
             return Error.InitializationFailed;
         };
-        self.game_map = map.Map.generate(self.allocator, 80, 50) catch |err| {
+        self.game_map = map.Map.generate(self.allocator, 80, 50, &self.enemies) catch |err| {
             std.log.err("Error generating map: {}", .{err});
             return Error.InitializationFailed;
         };
@@ -99,12 +103,12 @@ pub const Game = struct {
         if (rl.isKeyPressed(.down)) {
             target_position.y += tile_size;
         }
-        var target_player_point: fov.Point = self.playerPositionToTilePosition(target_position);
+        var target_player_point: fov.Point = self.worldPositionToTilePosition(target_position);
         const target_tile = self.game_map.getTile(target_player_point.x, target_player_point.y);
         if (target_tile != null and target_tile.?.walkable) {
             self.player_position = target_position;
         } else {
-            target_player_point = self.playerPositionToTilePosition(self.player_position);
+            target_player_point = self.worldPositionToTilePosition(self.player_position);
         }
         self.visible_tiles_points.clearAndFree();
         self.visible_tiles_points = fov.computeFOV(self.allocator, target_player_point, 5, self.game_map) catch |err| {
@@ -120,6 +124,7 @@ pub const Game = struct {
         }
     }
     fn render(self: *Game) Error!void {
+        // TODO: move textures to each entity type??? avoid to create the coordinates each time
         const tileset_texture: rl.Texture2D = self.asset_store.getTexture("tileset") catch |err| {
             std.log.err("Error getting texture for tileset: {}", .{err});
             return Error.RenderingFailed;
@@ -136,6 +141,10 @@ pub const Game = struct {
             std.log.err("Error getting texture coordinates for floor: {}", .{err});
             return Error.RenderingFailed;
         };
+        const enemy_tile_coordinates = self.tileset.getTileCoordinates('☺') catch |err| {
+            std.log.err("Error getting texture coordinates for enemy: {}", .{err});
+            return Error.RenderingFailed;
+        };
 
         rl.beginDrawing();
         defer rl.endDrawing();
@@ -146,6 +155,20 @@ pub const Game = struct {
         const player_dest_rect: rl.Rectangle = rl.Rectangle{ .x = self.player_position.x, .y = self.player_position.y, .height = self.tileset.tile_size, .width = self.tileset.tile_size };
         rl.drawTexturePro(tileset_texture, player_tile_coordinates.rect, player_dest_rect, .{ .x = 0, .y = 0 }, 0.0, rl.Color.ray_white);
 
+        // DRAW ENEMIES
+        for (self.enemies.items) |enemy| {
+          const tile_position = self.worldPositionToTilePosition(enemy.position);
+          const enemy_dest_rect = rl.Rectangle {
+            .x = enemy.position.x,
+            .y = enemy.position.y,
+            .height = self.tileset.tile_size,
+            .width = self.tileset.tile_size
+          };
+          if (self.visible_tiles_points.contains(tile_position)) {
+            rl.drawTexturePro(tileset_texture, enemy_tile_coordinates.rect, enemy_dest_rect, .{ .x = 0, .y = 0 }, 0.0, rl.Color.red);
+          }
+        }
+        
         // DRAW MAP
         for (self.game_map.tiles.items, 0..) |tile, index| {
             const map_width: usize = @intCast(self.game_map.width);
@@ -171,7 +194,7 @@ pub const Game = struct {
             }
         }
     }
-    fn playerPositionToTilePosition(self: *Game, pos: rl.Vector2) fov.Point {
+    fn worldPositionToTilePosition(self: *Game, pos: rl.Vector2) fov.Point {
         return fov.Point{
             .x = @intFromFloat(pos.x / self.tileset.tile_size),
             .y = @intFromFloat(pos.y / self.tileset.tile_size),

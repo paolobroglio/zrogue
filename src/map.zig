@@ -1,5 +1,6 @@
 const std = @import("std");
 const rl = @import("raylib");
+const enemy = @import("enemy.zig");
 
 const Error = error{MapNotInitialized};
 
@@ -163,7 +164,7 @@ pub const Map = struct {
         }
     }
 
-    pub fn generate(allocator: std.mem.Allocator, width: i32, height: i32) !Map {
+    pub fn generate(allocator: std.mem.Allocator, width: i32, height: i32, enemies: *std.ArrayList(enemy.Enemy)) !Map {
         var game_map = try init(allocator, width, height);
 
         const max_rooms:i32 = 30;
@@ -199,7 +200,14 @@ pub const Map = struct {
             game_map.tunnelBetween(prev_room_center, new_room_center);
 
             // Add enemies
-            
+            const room_center = new_room.center();
+            const new_enemy = enemy.Enemy {
+              .position = rl.Vector2{ 
+                .x = room_center.x * 16.0, 
+                .y = room_center.y * 16.0 
+              }
+            };
+            try enemies.append(new_enemy);
           }
 
           try game_map.rooms.append(new_room);

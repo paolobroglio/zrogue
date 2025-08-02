@@ -276,7 +276,7 @@ const Codepage437Map = [_]CodepageMap{
     .{ .char = '\xA0', .cp_index = 255 }, // Non-breaking space (often rendered as blank, but has a different meaning than ' ')
 };
 
-fn getCpIndex(char: u8) u8 {
+fn getCpIndex(char: u32) u32 {
     for (Codepage437Map) |mapping| {
         if (mapping.char == char) {
             return mapping.cp_index;
@@ -285,7 +285,7 @@ fn getCpIndex(char: u8) u8 {
     return 0;
 }
 
-pub fn getTextureCoordinates(char: u8) rl.Vector2 {
+pub fn getTextureCoordinates(char: u32) rl.Vector2 {
     const cpIndex: f16 = @floatFromInt(getCpIndex(char));
     const y = @divFloor(cpIndex, tilesPerRows);
     const x = @mod(cpIndex, tilesPerRows);

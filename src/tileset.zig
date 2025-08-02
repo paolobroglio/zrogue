@@ -24,7 +24,7 @@ pub const Tileset = struct {
             .tile_size = tile_size,
         };
     }
-    pub fn getTileCoordinates(self: *const Tileset, char: u8) TilesetError!TileCoordinates {
+    pub fn getTileCoordinates(self: *const Tileset, char: u32) TilesetError!TileCoordinates {
         switch (self.glyph_map_type) {
             GlyphMapType.Cp437 => {
                 const textureCoordinates = cp437.getTextureCoordinates(char);
