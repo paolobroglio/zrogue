@@ -103,24 +103,33 @@ pub const Game = struct {
         if (rl.isKeyPressed(.down)) {
             target_position.y += tile_size;
         }
-        var target_player_point: fov.Point = self.worldPositionToTilePosition(target_position);
-        const target_tile = self.game_map.getTile(target_player_point.x, target_player_point.y);
-        if (target_tile != null and target_tile.?.walkable) {
-            self.player_position = target_position;
+        // Check if the target position is occupied by an enemy
+        const enemy_hit = self.checkEnemyHitByPlayer(target_position);
+        if (enemy_hit != null){
+          std.log.info("Player hit enemy!", .{});
         } else {
-            target_player_point = self.worldPositionToTilePosition(self.player_position);
-        }
-        self.visible_tiles_points.clearAndFree();
-        self.visible_tiles_points = fov.computeFOV(self.allocator, target_player_point, 5, self.game_map) catch |err| {
-            std.log.err("Error computing FOV: {}", .{err});
-            return Error.RunFailed;
-        };
-        var it = self.visible_tiles_points.iterator();
-        while (it.next()) |entry| {
-            self.visited_tiles_points.put(entry.key_ptr.*, {}) catch |err| {
+          // Check if the target position is a WALKABLE TILE
+          var target_player_point: fov.Point = self.worldPositionToTilePosition(target_position);
+          const target_tile = self.game_map.getTile(target_player_point.x, target_player_point.y);
+          if (target_tile != null and target_tile.?.walkable) {
+            self.player_position = target_position;
+            // Compute FOV - we could avoid to compute the FOV if the player doesn't move!!! Also visited tiles would be the same as the previous iteration
+            self.visible_tiles_points.clearAndFree();
+            self.visible_tiles_points = fov.computeFOV(self.allocator, target_player_point, 5, self.game_map) catch |err| {
+              std.log.err("Error computing FOV: {}", .{err});
+              return Error.RunFailed;
+            };
+            // Compute Visited Tiles
+            var it = self.visible_tiles_points.iterator();
+            while (it.next()) |entry| {
+              self.visited_tiles_points.put(entry.key_ptr.*, {}) catch |err| {
                 std.log.err("Error adding a visited tile point: {}", .{err});
                 return Error.RunFailed;
-            };
+              };
+            }
+          } else {
+            target_player_point = self.worldPositionToTilePosition(self.player_position);
+          }
         }
     }
     fn render(self: *Game) Error!void {
@@ -199,5 +208,13 @@ pub const Game = struct {
             .x = @intFromFloat(pos.x / self.tileset.tile_size),
             .y = @intFromFloat(pos.y / self.tileset.tile_size),
         };
+    }
+    fn checkEnemyHitByPlayer(self: *const Game, player_target_pos: rl.Vector2) ?enmy.Enemy {
+      for (self.enemies.items) |enemy| {
+        if (enemy.position.x == player_target_pos.x and enemy.position.y == player_target_pos.y) {
+          return enemy;
+        }
+      }
+      return null;
     }
 };
