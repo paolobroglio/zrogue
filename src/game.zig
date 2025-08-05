@@ -31,22 +31,7 @@ pub const Game = struct {
     enemies: std.ArrayList(enmy.Enemy),
 
     pub fn init(allocator: std.mem.Allocator) Game {
-        return Game{
-            .allocator = allocator,
-            .window_width = 1280,
-            .window_height = 800,
-            .vsync = true,
-            .highdpi = true,
-            .fps = 60,
-            .is_running = false,
-            .asset_store = as.AssetStore.init(allocator),
-            .game_map = undefined,
-            .tileset = undefined,
-            .visible_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator),
-            .visited_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator),
-            .player_position = rl.Vector2.zero(),
-            .enemies = std.ArrayList(enmy.Enemy).init(allocator)
-        };
+        return Game{ .allocator = allocator, .window_width = 1280, .window_height = 800, .vsync = true, .highdpi = true, .fps = 60, .is_running = false, .asset_store = as.AssetStore.init(allocator), .game_map = undefined, .tileset = undefined, .visible_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .visited_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .player_position = rl.Vector2.zero(), .enemies = std.ArrayList(enmy.Enemy).init(allocator) };
     }
     pub fn deinit(self: *Game) void {
         rl.closeWindow();
@@ -105,32 +90,33 @@ pub const Game = struct {
         }
         // Check if the target position is occupied by an enemy
         const enemy_hit = self.checkEnemyHitByPlayer(target_position);
-        if (enemy_hit != null){
-          std.log.info("Player hit enemy!", .{});
+        if (enemy_hit != null) {
+            std.log.info("Player hit enemy!", .{});
         } else {
-          // Check if the target position is a WALKABLE TILE
-          var target_player_point: fov.Point = self.worldPositionToTilePosition(target_position);
-          const target_tile = self.game_map.getTile(target_player_point.x, target_player_point.y);
-          if (target_tile != null and target_tile.?.walkable) {
-            self.player_position = target_position;
-            // Compute FOV - we could avoid to compute the FOV if the player doesn't move!!! Also visited tiles would be the same as the previous iteration
-            self.visible_tiles_points.clearAndFree();
-            self.visible_tiles_points = fov.computeFOV(self.allocator, target_player_point, 5, self.game_map) catch |err| {
-              std.log.err("Error computing FOV: {}", .{err});
-              return Error.RunFailed;
-            };
-            // Compute Visited Tiles
-            var it = self.visible_tiles_points.iterator();
-            while (it.next()) |entry| {
-              self.visited_tiles_points.put(entry.key_ptr.*, {}) catch |err| {
-                std.log.err("Error adding a visited tile point: {}", .{err});
-                return Error.RunFailed;
-              };
+            // Check if the target position is a WALKABLE TILE
+            var target_player_point: fov.Point = self.worldPositionToTilePosition(target_position);
+            const target_tile = self.game_map.getTile(target_player_point.x, target_player_point.y);
+            if (target_tile != null and target_tile.?.walkable) {
+                self.player_position = target_position;
+                // Compute FOV - we could avoid to compute the FOV if the player doesn't move!!! Also visited tiles would be the same as the previous iteration
+                self.visible_tiles_points.clearAndFree();
+                self.visible_tiles_points = fov.computeFOV(self.allocator, target_player_point, 5, self.game_map) catch |err| {
+                    std.log.err("Error computing FOV: {}", .{err});
+                    return Error.RunFailed;
+                };
+                // Compute Visited Tiles
+                var it = self.visible_tiles_points.iterator();
+                while (it.next()) |entry| {
+                    self.visited_tiles_points.put(entry.key_ptr.*, {}) catch |err| {
+                        std.log.err("Error adding a visited tile point: {}", .{err});
+                        return Error.RunFailed;
+                    };
+                }
+            } else {
+                target_player_point = self.worldPositionToTilePosition(self.player_position);
             }
-          } else {
-            target_player_point = self.worldPositionToTilePosition(self.player_position);
-          }
         }
+        self.execute_enemy_turn();
     }
     fn render(self: *Game) Error!void {
         // TODO: move textures to each entity type??? avoid to create the coordinates each time
@@ -166,18 +152,13 @@ pub const Game = struct {
 
         // DRAW ENEMIES
         for (self.enemies.items) |enemy| {
-          const tile_position = self.worldPositionToTilePosition(enemy.position);
-          const enemy_dest_rect = rl.Rectangle {
-            .x = enemy.position.x,
-            .y = enemy.position.y,
-            .height = self.tileset.tile_size,
-            .width = self.tileset.tile_size
-          };
-          if (self.visible_tiles_points.contains(tile_position)) {
-            rl.drawTexturePro(tileset_texture, enemy_tile_coordinates.rect, enemy_dest_rect, .{ .x = 0, .y = 0 }, 0.0, rl.Color.red);
-          }
+            const tile_position = self.worldPositionToTilePosition(enemy.position);
+            const enemy_dest_rect = rl.Rectangle{ .x = enemy.position.x, .y = enemy.position.y, .height = self.tileset.tile_size, .width = self.tileset.tile_size };
+            if (self.visible_tiles_points.contains(tile_position)) {
+                rl.drawTexturePro(tileset_texture, enemy_tile_coordinates.rect, enemy_dest_rect, .{ .x = 0, .y = 0 }, 0.0, rl.Color.red);
+            }
         }
-        
+
         // DRAW MAP
         for (self.game_map.tiles.items, 0..) |tile, index| {
             const map_width: usize = @intCast(self.game_map.width);
@@ -210,11 +191,16 @@ pub const Game = struct {
         };
     }
     fn checkEnemyHitByPlayer(self: *const Game, player_target_pos: rl.Vector2) ?enmy.Enemy {
-      for (self.enemies.items) |enemy| {
-        if (enemy.position.x == player_target_pos.x and enemy.position.y == player_target_pos.y) {
-          return enemy;
+        for (self.enemies.items) |enemy| {
+            if (enemy.position.x == player_target_pos.x and enemy.position.y == player_target_pos.y) {
+                return enemy;
+            }
         }
-      }
-      return null;
+        return null;
+    }
+    fn execute_enemy_turn(self: *Game) void {
+        for (self.enemies.items) |enemy| {
+            std.log.info("Enemy {} turn", .{enemy});
+        }
     }
 };
