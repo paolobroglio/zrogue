@@ -1,3 +1,3 @@
 comptime {
-  _ = @import("fov.zig");
+    _ = @import("fov.zig");
 }

@@ -16,41 +16,41 @@ const Codepage437Map = [_]CodepageMap{
     // Note: Many of these are non-printable or have special rendering rules.
     // Unicode mappings for control characters can be complex and context-dependent.
     // These mappings are typical, but actual display might vary.
-    .{ .char = '\x00', .cp_index = 0 },  // NUL (Null)
-    .{ .char = '☺', .cp_index = 1 },   // Smiling Face
-    .{ .char = '☻', .cp_index = 2 },   // Black Smiling Face
-    .{ .char = '♥', .cp_index = 3 },   // Heart
-    .{ .char = '♦', .cp_index = 4 },   // Diamond
-    .{ .char = '♣', .cp_index = 5 },   // Club
-    .{ .char = '♠', .cp_index = 6 },   // Spade
-    .{ .char = '•', .cp_index = 7 },   // Bullet
-    .{ .char = '◘', .cp_index = 8 },   // Inverse Bullet
-    .{ .char = '○', .cp_index = 9 },   // White Circle
-    .{ .char = '◙', .cp_index = 10 },  // Inverse White Circle
-    .{ .char = '♂', .cp_index = 11 },  // Male Sign
-    .{ .char = '♀', .cp_index = 12 },  // Female Sign
-    .{ .char = '♪', .cp_index = 13 },  // Eighth Note
-    .{ .char = '♫', .cp_index = 14 },  // Paired Eighth Notes
-    .{ .char = '☼', .cp_index = 15 },  // White Sun with Rays
-    .{ .char = '►', .cp_index = 16 },  // Black Right-Pointing Triangle
-    .{ .char = '◄', .cp_index = 17 },  // Black Left-Pointing Triangle
-    .{ .char = '↕', .cp_index = 18 },  // Up Down Arrow
-    .{ .char = '‼', .cp_index = 19 },  // Double Exclamation Mark
-    .{ .char = '¶', .cp_index = 20 },  // Pilcrow Sign (Paragraph Mark)
-    .{ .char = '§', .cp_index = 21 },  // Section Sign
-    .{ .char = '▬', .cp_index = 22 },  // Black Rectangle (often thin horizontal bar)
-    .{ .char = '↨', .cp_index = 23 },  // Up Down Arrow with Base
-    .{ .char = '↑', .cp_index = 24 },  // Upwards Arrow
-    .{ .char = '↓', .cp_index = 25 },  // Downwards Arrow
-    .{ .char = '→', .cp_index = 26 },  // Rightwards Arrow
-    .{ .char = '←', .cp_index = 27 },  // Leftwards Arrow
-    .{ .char = '∟', .cp_index = 28 },  // Right Angle
-    .{ .char = '↔', .cp_index = 29 },  // Left Right Arrow
-    .{ .char = '▲', .cp_index = 30 },  // Black Up-Pointing Triangle
-    .{ .char = '▼', .cp_index = 31 },  // Black Down-Pointing Triangle
+    .{ .char = '\x00', .cp_index = 0 }, // NUL (Null)
+    .{ .char = '☺', .cp_index = 1 }, // Smiling Face
+    .{ .char = '☻', .cp_index = 2 }, // Black Smiling Face
+    .{ .char = '♥', .cp_index = 3 }, // Heart
+    .{ .char = '♦', .cp_index = 4 }, // Diamond
+    .{ .char = '♣', .cp_index = 5 }, // Club
+    .{ .char = '♠', .cp_index = 6 }, // Spade
+    .{ .char = '•', .cp_index = 7 }, // Bullet
+    .{ .char = '◘', .cp_index = 8 }, // Inverse Bullet
+    .{ .char = '○', .cp_index = 9 }, // White Circle
+    .{ .char = '◙', .cp_index = 10 }, // Inverse White Circle
+    .{ .char = '♂', .cp_index = 11 }, // Male Sign
+    .{ .char = '♀', .cp_index = 12 }, // Female Sign
+    .{ .char = '♪', .cp_index = 13 }, // Eighth Note
+    .{ .char = '♫', .cp_index = 14 }, // Paired Eighth Notes
+    .{ .char = '☼', .cp_index = 15 }, // White Sun with Rays
+    .{ .char = '►', .cp_index = 16 }, // Black Right-Pointing Triangle
+    .{ .char = '◄', .cp_index = 17 }, // Black Left-Pointing Triangle
+    .{ .char = '↕', .cp_index = 18 }, // Up Down Arrow
+    .{ .char = '‼', .cp_index = 19 }, // Double Exclamation Mark
+    .{ .char = '¶', .cp_index = 20 }, // Pilcrow Sign (Paragraph Mark)
+    .{ .char = '§', .cp_index = 21 }, // Section Sign
+    .{ .char = '▬', .cp_index = 22 }, // Black Rectangle (often thin horizontal bar)
+    .{ .char = '↨', .cp_index = 23 }, // Up Down Arrow with Base
+    .{ .char = '↑', .cp_index = 24 }, // Upwards Arrow
+    .{ .char = '↓', .cp_index = 25 }, // Downwards Arrow
+    .{ .char = '→', .cp_index = 26 }, // Rightwards Arrow
+    .{ .char = '←', .cp_index = 27 }, // Leftwards Arrow
+    .{ .char = '∟', .cp_index = 28 }, // Right Angle
+    .{ .char = '↔', .cp_index = 29 }, // Left Right Arrow
+    .{ .char = '▲', .cp_index = 30 }, // Black Up-Pointing Triangle
+    .{ .char = '▼', .cp_index = 31 }, // Black Down-Pointing Triangle
 
     // --- ASCII Characters (CP_INDEX 32-127) ---
-    .{ .char = ' ', .cp_index = 32 },  // Space
+    .{ .char = ' ', .cp_index = 32 }, // Space
     .{ .char = '!', .cp_index = 33 },
     .{ .char = '"', .cp_index = 34 },
     .{ .char = '#', .cp_index = 35 },
@@ -145,7 +145,7 @@ const Codepage437Map = [_]CodepageMap{
     .{ .char = '|', .cp_index = 124 },
     .{ .char = '}', .cp_index = 125 },
     .{ .char = '~', .cp_index = 126 },
-    .{ .char = '⌂', .cp_index = 127 },  // House
+    .{ .char = '⌂', .cp_index = 127 }, // House
 
     // --- Extended ASCII / IBM PC Graphic Characters (CP_INDEX 128-255) ---
     .{ .char = 'Ç', .cp_index = 128 },
@@ -276,30 +276,28 @@ const Codepage437Map = [_]CodepageMap{
     .{ .char = '\xA0', .cp_index = 255 }, // Non-breaking space (often rendered as blank, but has a different meaning than ' ')
 };
 
-fn getCpIndex(char: u8) u8 {
-  for (Codepage437Map) |mapping| {
-    if (mapping.char == char){
-      return mapping.cp_index;
+fn getCpIndex(char: u32) u32 {
+    for (Codepage437Map) |mapping| {
+        if (mapping.char == char) {
+            return mapping.cp_index;
+        }
     }
-  }
-  return 0;
+    return 0;
 }
 
-pub fn getTextureCoordinates(char: u8) rl.Vector2 {
-  const cpIndex: f16 = @floatFromInt(getCpIndex(char));
-  const y = @divFloor(cpIndex,tilesPerRows);
-  const x = @mod(cpIndex,tilesPerRows);
-  return rl.Vector2 {
-    .x = x,
-    .y = y,
-  };
+pub fn getTextureCoordinates(char: u32) rl.Vector2 {
+    const cpIndex: f16 = @floatFromInt(getCpIndex(char));
+    const y = @divFloor(cpIndex, tilesPerRows);
+    const x = @mod(cpIndex, tilesPerRows);
+    return rl.Vector2{
+        .x = x,
+        .y = y,
+    };
 }
-
-
 
 test "expect getTextureCoordinates to return the right coordinates for a char" {
-  const expected = rl.Vector2 {.x = 0, .y = 4};
-  const input = '@';
+    const expected = rl.Vector2{ .x = 0, .y = 4 };
+    const input = '@';
 
-  try testing.expect(getTextureCoordinates(input) == expected);
+    try testing.expect(getTextureCoordinates(input) == expected);
 }
