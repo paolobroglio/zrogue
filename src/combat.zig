@@ -12,7 +12,7 @@ pub const CombatResult = struct {
     was_blocked: bool = false,
 };
 
-pub fn simpleSubtraction(attacker: *component.CombatComponent, defender: *component.CombatComponent) CombatResult {
+pub fn simpleSubtraction(attacker: component.CombatComponent, defender: *component.CombatComponent) CombatResult {
     const raw_damage = attacker.power - defender.defense;
     const final_damage = @max(1, raw_damage);
 

@@ -12,7 +12,7 @@ pub const Enemy = struct {
     combat_component: component.CombatComponent,
 
     pub fn warrior(position: rl.Vector2) Enemy {
-        return Enemy{ 
+        return Enemy{
             .position = position,
             .glyph = '☺',
             .combat_component = component.CombatComponent{ .max_hp = 5, .hp = 5, .defense = 1, .power = 1 },

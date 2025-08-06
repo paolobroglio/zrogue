@@ -7,6 +7,7 @@ const fov = @import("fov.zig");
 const enmy = @import("enemy.zig");
 const plr = @import("player.zig");
 const rl = @import("raylib");
+const combat = @import("combat.zig");
 
 pub const Error = error{ InitializationFailed, DeinitializationFailed, RunFailed, InputHandlingFailed, RenderingFailed, UpdateFailed };
 
@@ -36,24 +37,7 @@ pub const Game = struct {
     enemies: std.ArrayList(enmy.Enemy),
 
     pub fn init(allocator: std.mem.Allocator) Game {
-        return Game{ 
-            .allocator = allocator, 
-            .window_width = 1280, 
-            .window_height = 800, 
-            .vsync = true, 
-            .highdpi = true, 
-            .fps = 60, 
-            .is_running = false, 
-            .asset_store = as.AssetStore.init(allocator), 
-            .game_map = undefined, 
-            .tileset = undefined, 
-            .tileset_texture = undefined,
-            .visible_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), 
-            .visited_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), 
-            .current_turn = Turn.Player, 
-            .player = plr.Player.init(rl.Vector2.zero(), '@'), 
-            .enemies = std.ArrayList(enmy.Enemy).init(allocator) 
-        };
+        return Game{ .allocator = allocator, .window_width = 1280, .window_height = 800, .vsync = true, .highdpi = true, .fps = 60, .is_running = false, .asset_store = as.AssetStore.init(allocator), .game_map = undefined, .tileset = undefined, .tileset_texture = undefined, .visible_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .visited_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .current_turn = Turn.Player, .player = plr.Player.init(rl.Vector2.zero(), '@'), .enemies = std.ArrayList(enmy.Enemy).init(allocator) };
     }
     pub fn deinit(self: *Game) void {
         rl.closeWindow();
@@ -119,10 +103,12 @@ pub const Game = struct {
                 target_position.y += tile_size;
                 self.current_turn = Turn.Enemy;
             }
-            // Check if the target position is occupied by an enemy
             const enemy_hit = self.checkEnemyHitByPlayer(target_position);
             if (enemy_hit != null) {
-                std.log.info("Player hit enemy!", .{});
+                const enemy_idx: usize = enemy_hit.?;
+                if (self.enemies.items[enemy_idx].combat_component.isDead()) {
+                    _ = self.enemies.orderedRemove(enemy_idx);
+                }
             } else {
                 // Check if the target position is a WALKABLE TILE
                 var target_player_point: fov.Point = self.worldPositionToTilePosition(target_position);
@@ -148,9 +134,10 @@ pub const Game = struct {
                 }
             }
         } else {
-            self.execute_enemy_turn();
+            self.executeEnemyTurn();
             self.current_turn = Turn.Player;
         }
+        self.updateAfterCombat();
     }
     fn render(self: *Game) Error!void {
         const player_tile_coordinates = self.tileset.getTileCoordinates(self.player.glyph) catch |err| {
@@ -219,28 +206,37 @@ pub const Game = struct {
             .y = @intFromFloat(pos.y / self.tileset.tile_size),
         };
     }
-    fn checkEnemyHitByPlayer(self: *const Game, player_target_pos: rl.Vector2) ?enmy.Enemy {
-        for (self.enemies.items) |enemy| {
+    fn checkEnemyHitByPlayer(self: *Game, player_target_pos: rl.Vector2) ?usize {
+        for (self.enemies.items, 0..) |*enemy, i| {
             if (enemy.position.x == player_target_pos.x and enemy.position.y == player_target_pos.y) {
-                return enemy;
+                const combat_result = combat.simpleSubtraction(self.player.combat_component, &enemy.combat_component);
+                std.log.info("Player hit enemy: {}!", .{combat_result});
+                return i;
             }
         }
         return null;
     }
-    fn execute_enemy_turn(self: *Game) void {
+    fn executeEnemyTurn(self: *Game) void {
         const threshold_distance: f32 = 5.0;
         for (self.enemies.items) |enemy| {
             const dx: f32 = self.player.position.x - enemy.position.x;
             const dy: f32 = self.player.position.y - enemy.position.y;
             const chebyshev_distance = @divFloor(@max(@abs(dx), @abs(dy)), self.tileset.tile_size);
-            debug.print("Enemy at ({},{}) distance from player {}\n", .{ enemy.position.x, enemy.position.y, chebyshev_distance });
+            //debug.print("Enemy at ({},{}) distance from player {}\n", .{ enemy.position.x, enemy.position.y, chebyshev_distance });
             if (chebyshev_distance == 1.0) {
-                debug.print("Enemy at ({},{}) attacks the player\n", .{ enemy.position.x, enemy.position.y });
+                //debug.print("Enemy at ({},{}) attacks the player\n", .{ enemy.position.x, enemy.position.y });
+                const combat_result = combat.simpleSubtraction(enemy.combat_component, &self.player.combat_component);
+                std.log.info("Enemy hit player: {}!", .{combat_result});
             } else if (chebyshev_distance >= threshold_distance) {
-                debug.print("Enemy at ({},{}) doesn't move\n", .{ enemy.position.x, enemy.position.y });
+                //debug.print("Enemy at ({},{}) doesn't move\n", .{ enemy.position.x, enemy.position.y });
             } else {
-                debug.print("Enemy at ({},{}) moves toward the player\n", .{ enemy.position.x, enemy.position.y });
+                //debug.print("Enemy at ({},{}) moves toward the player\n", .{ enemy.position.x, enemy.position.y });
             }
+        }
+    }
+    fn updateAfterCombat(self: *Game) void {
+        if (self.player.combat_component.isDead()) {
+            std.log.info("GAME OVER!", .{});
         }
     }
 };
