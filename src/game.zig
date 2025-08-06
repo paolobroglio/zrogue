@@ -5,6 +5,7 @@ const map = @import("map.zig");
 const tileset = @import("tileset.zig");
 const fov = @import("fov.zig");
 const enmy = @import("enemy.zig");
+const plr = @import("player.zig");
 const rl = @import("raylib");
 
 pub const Error = error{ InitializationFailed, DeinitializationFailed, RunFailed, InputHandlingFailed, RenderingFailed, UpdateFailed };
@@ -25,16 +26,34 @@ pub const Game = struct {
     asset_store: as.AssetStore,
     game_map: map.Map,
     tileset: tileset.Tileset,
+    tileset_texture: rl.Texture2D,
 
     visited_tiles_points: std.AutoHashMap(fov.Point, void),
     visible_tiles_points: std.AutoHashMap(fov.Point, void),
 
     current_turn: Turn,
-    player_position: rl.Vector2,
+    player: plr.Player,
     enemies: std.ArrayList(enmy.Enemy),
 
     pub fn init(allocator: std.mem.Allocator) Game {
-        return Game{ .allocator = allocator, .window_width = 1280, .window_height = 800, .vsync = true, .highdpi = true, .fps = 60, .is_running = false, .asset_store = as.AssetStore.init(allocator), .game_map = undefined, .tileset = undefined, .visible_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .visited_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .current_turn = Turn.Player, .player_position = rl.Vector2.zero(), .enemies = std.ArrayList(enmy.Enemy).init(allocator) };
+        return Game{ 
+            .allocator = allocator, 
+            .window_width = 1280, 
+            .window_height = 800, 
+            .vsync = true, 
+            .highdpi = true, 
+            .fps = 60, 
+            .is_running = false, 
+            .asset_store = as.AssetStore.init(allocator), 
+            .game_map = undefined, 
+            .tileset = undefined, 
+            .tileset_texture = undefined,
+            .visible_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), 
+            .visited_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), 
+            .current_turn = Turn.Player, 
+            .player = plr.Player.init(rl.Vector2.zero(), '@'), 
+            .enemies = std.ArrayList(enmy.Enemy).init(allocator) 
+        };
     }
     pub fn deinit(self: *Game) void {
         rl.closeWindow();
@@ -61,12 +80,15 @@ pub const Game = struct {
             std.log.err("Error initiliazing tileset: {}", .{err});
             return Error.InitializationFailed;
         };
-
+        self.tileset_texture = self.asset_store.getTexture("tileset") catch |err| {
+            std.log.err("Error getting texture for tileset: {}", .{err});
+            return Error.InitializationFailed;
+        };
         const starting_room = self.game_map.startingRoom() catch |err| {
             std.log.err("Error getting the starting room: {}", .{err});
             return Error.InitializationFailed;
         };
-        self.player_position = rl.Vector2{ .x = starting_room.center().x * self.tileset.tile_size, .y = starting_room.center().y * self.tileset.tile_size };
+        self.player.position = rl.Vector2{ .x = starting_room.center().x * self.tileset.tile_size, .y = starting_room.center().y * self.tileset.tile_size };
     }
     pub fn run(self: *Game) Error!void {
         self.is_running = true;
@@ -80,7 +102,7 @@ pub const Game = struct {
         // PLAYER ACTIONS - every action taken by the player is a turn
         const tile_size = self.tileset.tile_size;
         if (self.current_turn == Turn.Player) {
-            var target_position = self.player_position;
+            var target_position = self.player.position;
             if (rl.isKeyPressed(.right)) {
                 target_position.x += tile_size;
                 self.current_turn = Turn.Enemy;
@@ -106,7 +128,7 @@ pub const Game = struct {
                 var target_player_point: fov.Point = self.worldPositionToTilePosition(target_position);
                 const target_tile = self.game_map.getTile(target_player_point.x, target_player_point.y);
                 if (target_tile != null and target_tile.?.walkable) {
-                    self.player_position = target_position;
+                    self.player.position = target_position;
                     // Compute FOV - we could avoid to compute the FOV if the player doesn't move!!! Also visited tiles would be the same as the previous iteration
                     self.visible_tiles_points.clearAndFree();
                     self.visible_tiles_points = fov.computeFOV(self.allocator, target_player_point, 5, self.game_map) catch |err| {
@@ -122,7 +144,7 @@ pub const Game = struct {
                         };
                     }
                 } else {
-                    target_player_point = self.worldPositionToTilePosition(self.player_position);
+                    target_player_point = self.worldPositionToTilePosition(self.player.position);
                 }
             }
         } else {
@@ -131,12 +153,7 @@ pub const Game = struct {
         }
     }
     fn render(self: *Game) Error!void {
-        // TODO: move textures to each entity type??? avoid to create the coordinates each time
-        const tileset_texture: rl.Texture2D = self.asset_store.getTexture("tileset") catch |err| {
-            std.log.err("Error getting texture for tileset: {}", .{err});
-            return Error.RenderingFailed;
-        };
-        const player_tile_coordinates = self.tileset.getTileCoordinates('@') catch |err| {
+        const player_tile_coordinates = self.tileset.getTileCoordinates(self.player.glyph) catch |err| {
             std.log.err("Error getting texture coordinates for player: {}", .{err});
             return Error.RenderingFailed;
         };
@@ -148,10 +165,6 @@ pub const Game = struct {
             std.log.err("Error getting texture coordinates for floor: {}", .{err});
             return Error.RenderingFailed;
         };
-        const enemy_tile_coordinates = self.tileset.getTileCoordinates('☺') catch |err| {
-            std.log.err("Error getting texture coordinates for enemy: {}", .{err});
-            return Error.RenderingFailed;
-        };
 
         rl.beginDrawing();
         defer rl.endDrawing();
@@ -159,15 +172,19 @@ pub const Game = struct {
         rl.clearBackground(rl.Color.black);
 
         // DRAW PLAYER
-        const player_dest_rect: rl.Rectangle = rl.Rectangle{ .x = self.player_position.x, .y = self.player_position.y, .height = self.tileset.tile_size, .width = self.tileset.tile_size };
-        rl.drawTexturePro(tileset_texture, player_tile_coordinates.rect, player_dest_rect, .{ .x = 0, .y = 0 }, 0.0, rl.Color.ray_white);
+        const player_dest_rect: rl.Rectangle = rl.Rectangle{ .x = self.player.position.x, .y = self.player.position.y, .height = self.tileset.tile_size, .width = self.tileset.tile_size };
+        rl.drawTexturePro(self.tileset_texture, player_tile_coordinates.rect, player_dest_rect, .{ .x = 0, .y = 0 }, 0.0, rl.Color.ray_white);
 
         // DRAW ENEMIES
         for (self.enemies.items) |enemy| {
+            const enemy_tile_coordinates = self.tileset.getTileCoordinates(enemy.glyph) catch |err| {
+                std.log.err("Error getting texture coordinates for enemy: {}", .{err});
+                return Error.RenderingFailed;
+            };
             const tile_position = self.worldPositionToTilePosition(enemy.position);
             const enemy_dest_rect = rl.Rectangle{ .x = enemy.position.x, .y = enemy.position.y, .height = self.tileset.tile_size, .width = self.tileset.tile_size };
             if (self.visible_tiles_points.contains(tile_position)) {
-                rl.drawTexturePro(tileset_texture, enemy_tile_coordinates.rect, enemy_dest_rect, .{ .x = 0, .y = 0 }, 0.0, rl.Color.red);
+                rl.drawTexturePro(self.tileset_texture, enemy_tile_coordinates.rect, enemy_dest_rect, .{ .x = 0, .y = 0 }, 0.0, rl.Color.red);
             }
         }
 
@@ -187,11 +204,11 @@ pub const Game = struct {
             if (self.visible_tiles_points.contains(point)) {
                 const bg_color = tile.light.bgColor;
                 // background
-                rl.drawTexturePro(tileset_texture, tile_src_rect, tile_dest_rect, .{ .x = 0, .y = 0 }, 0.0, bg_color);
+                rl.drawTexturePro(self.tileset_texture, tile_src_rect, tile_dest_rect, .{ .x = 0, .y = 0 }, 0.0, bg_color);
             } else {
                 if (self.visited_tiles_points.contains(point)) {
                     const bg_color = tile.dark.bgColor;
-                    rl.drawTexturePro(tileset_texture, tile_src_rect, tile_dest_rect, .{ .x = 0, .y = 0 }, 0.0, bg_color);
+                    rl.drawTexturePro(self.tileset_texture, tile_src_rect, tile_dest_rect, .{ .x = 0, .y = 0 }, 0.0, bg_color);
                 }
             }
         }
@@ -213,16 +230,16 @@ pub const Game = struct {
     fn execute_enemy_turn(self: *Game) void {
         const threshold_distance: f32 = 5.0;
         for (self.enemies.items) |enemy| {
-            const dx: f32 = self.player_position.x - enemy.position.x;
-            const dy: f32 = self.player_position.y - enemy.position.y;
+            const dx: f32 = self.player.position.x - enemy.position.x;
+            const dy: f32 = self.player.position.y - enemy.position.y;
             const chebyshev_distance = @divFloor(@max(@abs(dx), @abs(dy)), self.tileset.tile_size);
-            debug.print("Enemy at ({},{}) distance from player {}\n", .{enemy.position.x, enemy.position.y, chebyshev_distance});
+            debug.print("Enemy at ({},{}) distance from player {}\n", .{ enemy.position.x, enemy.position.y, chebyshev_distance });
             if (chebyshev_distance == 1.0) {
-                debug.print("Enemy at ({},{}) attacks the player\n", .{enemy.position.x, enemy.position.y});
+                debug.print("Enemy at ({},{}) attacks the player\n", .{ enemy.position.x, enemy.position.y });
             } else if (chebyshev_distance >= threshold_distance) {
-                debug.print("Enemy at ({},{}) doesn't move\n", .{enemy.position.x, enemy.position.y});
+                debug.print("Enemy at ({},{}) doesn't move\n", .{ enemy.position.x, enemy.position.y });
             } else {
-                debug.print("Enemy at ({},{}) moves toward the player\n", .{enemy.position.x, enemy.position.y});
+                debug.print("Enemy at ({},{}) moves toward the player\n", .{ enemy.position.x, enemy.position.y });
             }
         }
     }

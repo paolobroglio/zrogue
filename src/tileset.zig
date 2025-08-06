@@ -3,9 +3,9 @@ const rl = @import("raylib");
 
 pub const GlyphMapType = enum { Cp437 };
 
-const TilesetError = error{ LoadFailed, CharMapNotFound };
+pub const TilesetError = error{ LoadFailed, CharMapNotFound };
 
-const TileCoordinates = struct {
+pub const TileCoordinates = struct {
     rect: rl.Rectangle,
     fn init(vec: rl.Vector2, tileSize: f32) TileCoordinates {
         return TileCoordinates{ .rect = rl.Rectangle{ .x = vec.x * tileSize, .y = vec.y * tileSize, .height = tileSize, .width = tileSize } };
