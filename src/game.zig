@@ -9,6 +9,8 @@ const rl = @import("raylib");
 
 pub const Error = error{ InitializationFailed, DeinitializationFailed, RunFailed, InputHandlingFailed, RenderingFailed, UpdateFailed };
 
+const Turn = enum { Player, Enemy };
+
 pub const Game = struct {
     allocator: std.mem.Allocator,
     // configurations
@@ -27,11 +29,12 @@ pub const Game = struct {
     visited_tiles_points: std.AutoHashMap(fov.Point, void),
     visible_tiles_points: std.AutoHashMap(fov.Point, void),
 
+    current_turn: Turn,
     player_position: rl.Vector2,
     enemies: std.ArrayList(enmy.Enemy),
 
     pub fn init(allocator: std.mem.Allocator) Game {
-        return Game{ .allocator = allocator, .window_width = 1280, .window_height = 800, .vsync = true, .highdpi = true, .fps = 60, .is_running = false, .asset_store = as.AssetStore.init(allocator), .game_map = undefined, .tileset = undefined, .visible_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .visited_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .player_position = rl.Vector2.zero(), .enemies = std.ArrayList(enmy.Enemy).init(allocator) };
+        return Game{ .allocator = allocator, .window_width = 1280, .window_height = 800, .vsync = true, .highdpi = true, .fps = 60, .is_running = false, .asset_store = as.AssetStore.init(allocator), .game_map = undefined, .tileset = undefined, .visible_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .visited_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .current_turn = Turn.Player, .player_position = rl.Vector2.zero(), .enemies = std.ArrayList(enmy.Enemy).init(allocator) };
     }
     pub fn deinit(self: *Game) void {
         rl.closeWindow();
@@ -74,49 +77,58 @@ pub const Game = struct {
         }
     }
     fn update(self: *Game) Error!void {
+        // PLAYER ACTIONS - every action taken by the player is a turn
         const tile_size = self.tileset.tile_size;
-        var target_position = self.player_position;
-        if (rl.isKeyPressed(.right)) {
-            target_position.x += tile_size;
-        }
-        if (rl.isKeyPressed(.left)) {
-            target_position.x -= tile_size;
-        }
-        if (rl.isKeyPressed(.up)) {
-            target_position.y -= tile_size;
-        }
-        if (rl.isKeyPressed(.down)) {
-            target_position.y += tile_size;
-        }
-        // Check if the target position is occupied by an enemy
-        const enemy_hit = self.checkEnemyHitByPlayer(target_position);
-        if (enemy_hit != null) {
-            std.log.info("Player hit enemy!", .{});
-        } else {
-            // Check if the target position is a WALKABLE TILE
-            var target_player_point: fov.Point = self.worldPositionToTilePosition(target_position);
-            const target_tile = self.game_map.getTile(target_player_point.x, target_player_point.y);
-            if (target_tile != null and target_tile.?.walkable) {
-                self.player_position = target_position;
-                // Compute FOV - we could avoid to compute the FOV if the player doesn't move!!! Also visited tiles would be the same as the previous iteration
-                self.visible_tiles_points.clearAndFree();
-                self.visible_tiles_points = fov.computeFOV(self.allocator, target_player_point, 5, self.game_map) catch |err| {
-                    std.log.err("Error computing FOV: {}", .{err});
-                    return Error.RunFailed;
-                };
-                // Compute Visited Tiles
-                var it = self.visible_tiles_points.iterator();
-                while (it.next()) |entry| {
-                    self.visited_tiles_points.put(entry.key_ptr.*, {}) catch |err| {
-                        std.log.err("Error adding a visited tile point: {}", .{err});
+        if (self.current_turn == Turn.Player) {
+            var target_position = self.player_position;
+            if (rl.isKeyPressed(.right)) {
+                target_position.x += tile_size;
+                self.current_turn = Turn.Enemy;
+            }
+            if (rl.isKeyPressed(.left)) {
+                target_position.x -= tile_size;
+                self.current_turn = Turn.Enemy;
+            }
+            if (rl.isKeyPressed(.up)) {
+                target_position.y -= tile_size;
+                self.current_turn = Turn.Enemy;
+            }
+            if (rl.isKeyPressed(.down)) {
+                target_position.y += tile_size;
+                self.current_turn = Turn.Enemy;
+            }
+            // Check if the target position is occupied by an enemy
+            const enemy_hit = self.checkEnemyHitByPlayer(target_position);
+            if (enemy_hit != null) {
+                std.log.info("Player hit enemy!", .{});
+            } else {
+                // Check if the target position is a WALKABLE TILE
+                var target_player_point: fov.Point = self.worldPositionToTilePosition(target_position);
+                const target_tile = self.game_map.getTile(target_player_point.x, target_player_point.y);
+                if (target_tile != null and target_tile.?.walkable) {
+                    self.player_position = target_position;
+                    // Compute FOV - we could avoid to compute the FOV if the player doesn't move!!! Also visited tiles would be the same as the previous iteration
+                    self.visible_tiles_points.clearAndFree();
+                    self.visible_tiles_points = fov.computeFOV(self.allocator, target_player_point, 5, self.game_map) catch |err| {
+                        std.log.err("Error computing FOV: {}", .{err});
                         return Error.RunFailed;
                     };
+                    // Compute Visited Tiles
+                    var it = self.visible_tiles_points.iterator();
+                    while (it.next()) |entry| {
+                        self.visited_tiles_points.put(entry.key_ptr.*, {}) catch |err| {
+                            std.log.err("Error adding a visited tile point: {}", .{err});
+                            return Error.RunFailed;
+                        };
+                    }
+                } else {
+                    target_player_point = self.worldPositionToTilePosition(self.player_position);
                 }
-            } else {
-                target_player_point = self.worldPositionToTilePosition(self.player_position);
             }
+        } else {
+            self.execute_enemy_turn();
+            self.current_turn = Turn.Player;
         }
-        self.execute_enemy_turn();
     }
     fn render(self: *Game) Error!void {
         // TODO: move textures to each entity type??? avoid to create the coordinates each time
@@ -199,8 +211,19 @@ pub const Game = struct {
         return null;
     }
     fn execute_enemy_turn(self: *Game) void {
+        const threshold_distance: f32 = 5.0;
         for (self.enemies.items) |enemy| {
-            std.log.info("Enemy {} turn", .{enemy});
+            const dx: f32 = self.player_position.x - enemy.position.x;
+            const dy: f32 = self.player_position.y - enemy.position.y;
+            const chebyshev_distance = @divFloor(@max(@abs(dx), @abs(dy)), self.tileset.tile_size);
+            debug.print("Enemy at ({},{}) distance from player {}\n", .{enemy.position.x, enemy.position.y, chebyshev_distance});
+            if (chebyshev_distance == 1.0) {
+                debug.print("Enemy at ({},{}) attacks the player\n", .{enemy.position.x, enemy.position.y});
+            } else if (chebyshev_distance >= threshold_distance) {
+                debug.print("Enemy at ({},{}) doesn't move\n", .{enemy.position.x, enemy.position.y});
+            } else {
+                debug.print("Enemy at ({},{}) moves toward the player\n", .{enemy.position.x, enemy.position.y});
+            }
         }
     }
 };
