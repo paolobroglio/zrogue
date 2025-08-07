@@ -8,10 +8,12 @@ const enmy = @import("enemy.zig");
 const plr = @import("player.zig");
 const rl = @import("raylib");
 const combat = @import("combat.zig");
+const ui = @import("ui.zig");
 
 pub const Error = error{ InitializationFailed, DeinitializationFailed, RunFailed, InputHandlingFailed, RenderingFailed, UpdateFailed };
 
 const Turn = enum { Player, Enemy };
+const GameState = enum { MainMenu, Playing, PauseMenu, GameOver };
 
 pub const Game = struct {
     allocator: std.mem.Allocator,
@@ -23,6 +25,7 @@ pub const Game = struct {
     fps: i32,
 
     is_running: bool,
+    game_state: GameState,
 
     asset_store: as.AssetStore,
     game_map: map.Map,
@@ -36,8 +39,10 @@ pub const Game = struct {
     player: plr.Player,
     enemies: std.ArrayList(enmy.Enemy),
 
+    main_menu_ui: ui.MainMenuUI,
+
     pub fn init(allocator: std.mem.Allocator) Game {
-        return Game{ .allocator = allocator, .window_width = 1280, .window_height = 800, .vsync = true, .highdpi = true, .fps = 60, .is_running = false, .asset_store = as.AssetStore.init(allocator), .game_map = undefined, .tileset = undefined, .tileset_texture = undefined, .visible_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .visited_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .current_turn = Turn.Player, .player = plr.Player.init(rl.Vector2.zero(), '@'), .enemies = std.ArrayList(enmy.Enemy).init(allocator) };
+        return Game{ .allocator = allocator, .window_width = 1280, .window_height = 800, .vsync = true, .highdpi = true, .fps = 60, .is_running = false, .game_state = GameState.MainMenu, .asset_store = as.AssetStore.init(allocator), .game_map = undefined, .tileset = undefined, .tileset_texture = undefined, .visible_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .visited_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .current_turn = Turn.Player, .player = plr.Player.init(rl.Vector2.zero(), '@'), .enemies = std.ArrayList(enmy.Enemy).init(allocator), .main_menu_ui = ui.MainMenuUI.init() };
     }
     pub fn deinit(self: *Game) void {
         rl.closeWindow();
@@ -47,99 +52,128 @@ pub const Game = struct {
         self.visible_tiles_points.deinit();
         self.enemies.deinit();
     }
+    // TODO: Only do setup for window initialization, everything else will be done when the game starts
     fn setup(self: *Game) Error!void {
         rl.setConfigFlags(.{ .window_highdpi = self.highdpi, .window_resizable = false, .vsync_hint = self.vsync });
         rl.initWindow(self.window_width, self.window_height, "ZRogue");
         rl.setTargetFPS(self.fps);
-
-        self.asset_store.addTexture("tileset", "resources/redjack16x16.png") catch |err| {
-            std.log.err("Error adding texture: {}", .{err});
-            return Error.InitializationFailed;
-        };
-        self.game_map = map.Map.generate(self.allocator, 80, 50, &self.enemies) catch |err| {
-            std.log.err("Error generating map: {}", .{err});
-            return Error.InitializationFailed;
-        };
-        self.tileset = tileset.Tileset.init("tileset", tileset.GlyphMapType.Cp437, 16.0) catch |err| {
-            std.log.err("Error initiliazing tileset: {}", .{err});
-            return Error.InitializationFailed;
-        };
-        self.tileset_texture = self.asset_store.getTexture("tileset") catch |err| {
-            std.log.err("Error getting texture for tileset: {}", .{err});
-            return Error.InitializationFailed;
-        };
-        const starting_room = self.game_map.startingRoom() catch |err| {
-            std.log.err("Error getting the starting room: {}", .{err});
-            return Error.InitializationFailed;
-        };
-        self.player.position = rl.Vector2{ .x = starting_room.center().x * self.tileset.tile_size, .y = starting_room.center().y * self.tileset.tile_size };
     }
     pub fn run(self: *Game) Error!void {
         self.is_running = true;
         try self.setup();
-        while (!rl.windowShouldClose()) {
+        while (!rl.windowShouldClose() and self.is_running) {
             try self.update();
             try self.render();
         }
     }
     fn update(self: *Game) Error!void {
-        // PLAYER ACTIONS - every action taken by the player is a turn
-        const tile_size = self.tileset.tile_size;
-        if (self.current_turn == Turn.Player) {
-            var target_position = self.player.position;
-            if (rl.isKeyPressed(.right)) {
-                target_position.x += tile_size;
-                self.current_turn = Turn.Enemy;
-            }
-            if (rl.isKeyPressed(.left)) {
-                target_position.x -= tile_size;
-                self.current_turn = Turn.Enemy;
-            }
-            if (rl.isKeyPressed(.up)) {
-                target_position.y -= tile_size;
-                self.current_turn = Turn.Enemy;
-            }
-            if (rl.isKeyPressed(.down)) {
-                target_position.y += tile_size;
-                self.current_turn = Turn.Enemy;
-            }
-            const enemy_hit = self.checkEnemyHitByPlayer(target_position);
-            if (enemy_hit != null) {
-                const enemy_idx: usize = enemy_hit.?;
-                if (self.enemies.items[enemy_idx].combat_component.isDead()) {
-                    _ = self.enemies.orderedRemove(enemy_idx);
+        switch (self.game_state) {
+            GameState.MainMenu => {
+                self.main_menu_ui.main_menu_play_button.update();
+                self.main_menu_ui.main_menu_quit_button.update();
+
+                if (self.main_menu_play_button.is_pressed) {
+                    try self.startNewGame();
+                    self.game_state = GameState.Playing;
                 }
-            } else {
-                // Check if the target position is a WALKABLE TILE
-                var target_player_point: fov.Point = self.worldPositionToTilePosition(target_position);
-                const target_tile = self.game_map.getTile(target_player_point.x, target_player_point.y);
-                if (target_tile != null and target_tile.?.walkable) {
-                    self.player.position = target_position;
-                    // Compute FOV - we could avoid to compute the FOV if the player doesn't move!!! Also visited tiles would be the same as the previous iteration
-                    self.visible_tiles_points.clearAndFree();
-                    self.visible_tiles_points = fov.computeFOV(self.allocator, target_player_point, 5, self.game_map) catch |err| {
-                        std.log.err("Error computing FOV: {}", .{err});
-                        return Error.RunFailed;
-                    };
-                    // Compute Visited Tiles
-                    var it = self.visible_tiles_points.iterator();
-                    while (it.next()) |entry| {
-                        self.visited_tiles_points.put(entry.key_ptr.*, {}) catch |err| {
-                            std.log.err("Error adding a visited tile point: {}", .{err});
-                            return Error.RunFailed;
-                        };
+                if (self.main_menu_quit_button.is_pressed) {
+                    self.is_running = false;
+                }
+                if (rl.isKeyPressed(.escape)) {
+                    self.is_running = false;
+                }
+            },
+            GameState.PauseMenu => {
+                // Pause menu text
+                // Resume
+                // Options
+                // Main Menu
+            },
+            GameState.Playing => {
+                if (rl.isKeyPressed(.escape)) {
+                    self.game_state = GameState.PauseMenu;
+                    return;
+                }
+                const tile_size = self.tileset.tile_size;
+                if (self.current_turn == Turn.Player) {
+                    var target_position = self.player.position;
+                    if (rl.isKeyPressed(.right)) {
+                        target_position.x += tile_size;
+                        self.current_turn = Turn.Enemy;
+                    }
+                    if (rl.isKeyPressed(.left)) {
+                        target_position.x -= tile_size;
+                        self.current_turn = Turn.Enemy;
+                    }
+                    if (rl.isKeyPressed(.up)) {
+                        target_position.y -= tile_size;
+                        self.current_turn = Turn.Enemy;
+                    }
+                    if (rl.isKeyPressed(.down)) {
+                        target_position.y += tile_size;
+                        self.current_turn = Turn.Enemy;
+                    }
+                    const enemy_hit = self.checkEnemyHitByPlayer(target_position);
+                    if (enemy_hit != null) {
+                        const enemy_idx: usize = enemy_hit.?;
+                        if (self.enemies.items[enemy_idx].combat_component.isDead()) {
+                            _ = self.enemies.swapRemove(enemy_idx);
+                        }
+                    } else {
+                        // Check if the target position is a WALKABLE TILE
+                        var target_player_point: fov.Point = self.worldPositionToTilePosition(target_position);
+                        const target_tile = self.game_map.getTile(target_player_point.x, target_player_point.y);
+                        if (target_tile != null and target_tile.?.walkable) {
+                            self.player.position = target_position;
+                            // Compute FOV - we could avoid to compute the FOV if the player doesn't move!!! Also visited tiles would be the same as the previous iteration
+                            self.visible_tiles_points.clearAndFree();
+                            self.visible_tiles_points = fov.computeFOV(self.allocator, target_player_point, 5, self.game_map) catch |err| {
+                                std.log.err("Error computing FOV: {}", .{err});
+                                return Error.RunFailed;
+                            };
+                            // Compute Visited Tiles
+                            var it = self.visible_tiles_points.iterator();
+                            while (it.next()) |entry| {
+                                self.visited_tiles_points.put(entry.key_ptr.*, {}) catch |err| {
+                                    std.log.err("Error adding a visited tile point: {}", .{err});
+                                    return Error.RunFailed;
+                                };
+                            }
+                        } else {
+                            target_player_point = self.worldPositionToTilePosition(self.player.position);
+                        }
                     }
                 } else {
-                    target_player_point = self.worldPositionToTilePosition(self.player.position);
+                    self.executeEnemyTurn();
+                    self.current_turn = Turn.Player;
                 }
-            }
-        } else {
-            self.executeEnemyTurn();
-            self.current_turn = Turn.Player;
+                self.updateAfterCombat();
+            },
+            GameState.GameOver => {
+                // Main Menu
+            },
         }
-        self.updateAfterCombat();
     }
     fn render(self: *Game) Error!void {
+        switch (self.game_state) {
+            GameState.MainMenu => {
+                self.renderMainMenu();
+            },
+            GameState.PauseMenu => {
+                // First render the game in the background (dimmed)
+                try self.renderGame();
+                self.renderPauseMenu();
+            },
+            GameState.Playing => {
+                try self.renderPlayingGame();
+            },
+            GameState.GameOver => {
+                // First render the game in the background (dimmed)
+                try self.renderGame();
+                self.renderGameOverMenu();
+            },
+        }
+
         const player_tile_coordinates = self.tileset.getTileCoordinates(self.player.glyph) catch |err| {
             std.log.err("Error getting texture coordinates for player: {}", .{err});
             return Error.RenderingFailed;
@@ -199,6 +233,35 @@ pub const Game = struct {
                 }
             }
         }
+    }
+    fn renderMainMenu(self: *Game) Error!void {
+        
+    }
+    fn renderPlayingGame(self: *Game) Error!void {
+
+    }
+    fn startNewGame(self: *Game) Error!void {
+        self.asset_store.addTexture("tileset", "resources/redjack16x16.png") catch |err| {
+            std.log.err("Error adding texture: {}", .{err});
+            return Error.InitializationFailed;
+        };
+        self.game_map = map.Map.generate(self.allocator, 80, 50, &self.enemies) catch |err| {
+            std.log.err("Error generating map: {}", .{err});
+            return Error.InitializationFailed;
+        };
+        self.tileset = tileset.Tileset.init("tileset", tileset.GlyphMapType.Cp437, 16.0) catch |err| {
+            std.log.err("Error initiliazing tileset: {}", .{err});
+            return Error.InitializationFailed;
+        };
+        self.tileset_texture = self.asset_store.getTexture("tileset") catch |err| {
+            std.log.err("Error getting texture for tileset: {}", .{err});
+            return Error.InitializationFailed;
+        };
+        const starting_room = self.game_map.startingRoom() catch |err| {
+            std.log.err("Error getting the starting room: {}", .{err});
+            return Error.InitializationFailed;
+        };
+        self.player.position = rl.Vector2{ .x = starting_room.center().x * self.tileset.tile_size, .y = starting_room.center().y * self.tileset.tile_size };
     }
     fn worldPositionToTilePosition(self: *Game, pos: rl.Vector2) fov.Point {
         return fov.Point{
