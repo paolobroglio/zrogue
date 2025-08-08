@@ -40,9 +40,11 @@ pub const Game = struct {
     enemies: std.ArrayList(enmy.Enemy),
 
     main_menu_ui: ui.MainMenuUI,
+    game_over_menu_ui: ui.GameOverUI,
+    pause_menu_ui: ui.PauseMenuUI,
 
     pub fn init(allocator: std.mem.Allocator) Game {
-        return Game{ .allocator = allocator, .window_width = 1280, .window_height = 800, .vsync = true, .highdpi = true, .fps = 60, .is_running = false, .game_state = GameState.MainMenu, .asset_store = as.AssetStore.init(allocator), .game_map = undefined, .tileset = undefined, .tileset_texture = undefined, .visible_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .visited_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .current_turn = Turn.Player, .player = plr.Player.init(rl.Vector2.zero(), '@'), .enemies = std.ArrayList(enmy.Enemy).init(allocator), .main_menu_ui = ui.MainMenuUI.init() };
+        return Game{ .allocator = allocator, .window_width = 1280, .window_height = 800, .vsync = true, .highdpi = true, .fps = 60, .is_running = false, .game_state = GameState.MainMenu, .asset_store = as.AssetStore.init(allocator), .game_map = undefined, .tileset = undefined, .tileset_texture = undefined, .visible_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .visited_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .current_turn = Turn.Player, .player = plr.Player.init(rl.Vector2.zero(), '@'), .enemies = std.ArrayList(enmy.Enemy).init(allocator), .main_menu_ui = ui.MainMenuUI.init(), .pause_menu_ui = ui.PauseMenuUI.init(), .game_over_menu_ui = ui.GameOverUI.init() };
     }
     pub fn deinit(self: *Game) void {
         rl.closeWindow();
@@ -52,11 +54,23 @@ pub const Game = struct {
         self.visible_tiles_points.deinit();
         self.enemies.deinit();
     }
-    // TODO: Only do setup for window initialization, everything else will be done when the game starts
     fn setup(self: *Game) Error!void {
         rl.setConfigFlags(.{ .window_highdpi = self.highdpi, .window_resizable = false, .vsync_hint = self.vsync });
         rl.initWindow(self.window_width, self.window_height, "ZRogue");
         rl.setTargetFPS(self.fps);
+
+        self.asset_store.addTexture("tileset", "resources/redjack16x16.png") catch |err| {
+            std.log.err("Error adding texture: {}", .{err});
+            return Error.InitializationFailed;
+        };
+        self.tileset = tileset.Tileset.init("tileset", tileset.GlyphMapType.Cp437, 16.0) catch |err| {
+            std.log.err("Error initiliazing tileset: {}", .{err});
+            return Error.InitializationFailed;
+        };
+        self.tileset_texture = self.asset_store.getTexture("tileset") catch |err| {
+            std.log.err("Error getting texture for tileset: {}", .{err});
+            return Error.InitializationFailed;
+        };
     }
     pub fn run(self: *Game) Error!void {
         self.is_running = true;
@@ -69,14 +83,14 @@ pub const Game = struct {
     fn update(self: *Game) Error!void {
         switch (self.game_state) {
             GameState.MainMenu => {
-                self.main_menu_ui.main_menu_play_button.update();
-                self.main_menu_ui.main_menu_quit_button.update();
+                self.main_menu_ui.play_button.update();
+                self.main_menu_ui.quit_button.update();
 
-                if (self.main_menu_play_button.is_pressed) {
+                if (self.main_menu_ui.play_button.is_pressed) {
                     try self.startNewGame();
                     self.game_state = GameState.Playing;
                 }
-                if (self.main_menu_quit_button.is_pressed) {
+                if (self.main_menu_ui.quit_button.is_pressed) {
                     self.is_running = false;
                 }
                 if (rl.isKeyPressed(.escape)) {
@@ -84,13 +98,23 @@ pub const Game = struct {
                 }
             },
             GameState.PauseMenu => {
-                // Pause menu text
-                // Resume
-                // Options
-                // Main Menu
+                self.pause_menu_ui.main_menu_button.update();
+                self.pause_menu_ui.options_button.update();
+                self.pause_menu_ui.resume_button.update();
+
+                if (self.pause_menu_ui.main_menu_button.is_pressed) {
+                    try self.reset();
+                    self.game_state = GameState.MainMenu;
+                }
+                if (self.pause_menu_ui.options_button.is_pressed) {
+                    debug.print("Options menu", .{});
+                }
+                if (self.pause_menu_ui.resume_button.is_pressed) {
+                    self.game_state = GameState.Playing;
+                }
             },
             GameState.Playing => {
-                if (rl.isKeyPressed(.escape)) {
+                if (rl.isKeyPressed(.p)) {
                     self.game_state = GameState.PauseMenu;
                     return;
                 }
@@ -150,30 +174,98 @@ pub const Game = struct {
                 self.updateAfterCombat();
             },
             GameState.GameOver => {
-                // Main Menu
+                self.game_over_menu_ui.main_menu_button.update();
+                self.game_over_menu_ui.restart_button.update();
+
+                if (self.game_over_menu_ui.main_menu_button.is_pressed) {
+                    try self.reset();
+                    self.game_state = GameState.MainMenu;
+                }
+                if (self.game_over_menu_ui.restart_button.is_pressed) {
+                    try self.reset();
+                    try self.startNewGame();
+                    self.game_state = GameState.Playing;
+                }
             },
         }
     }
+    fn reset(self: *Game) Error!void {
+        self.game_map.destroy();
+        self.visited_tiles_points.clearRetainingCapacity();
+        self.visible_tiles_points.clearRetainingCapacity();
+        self.enemies.clearRetainingCapacity();
+    }
     fn render(self: *Game) Error!void {
+        rl.beginDrawing();
+        defer rl.endDrawing();
+
+        rl.clearBackground(rl.Color.black);
+
         switch (self.game_state) {
             GameState.MainMenu => {
-                self.renderMainMenu();
+                try self.renderMainMenu();
             },
             GameState.PauseMenu => {
-                // First render the game in the background (dimmed)
-                try self.renderGame();
-                self.renderPauseMenu();
+                try self.renderPauseMenu();
             },
             GameState.Playing => {
                 try self.renderPlayingGame();
             },
             GameState.GameOver => {
-                // First render the game in the background (dimmed)
-                try self.renderGame();
-                self.renderGameOverMenu();
+                try self.renderGameOverMenu();
             },
         }
+    }
+    fn renderGameOverMenu(self: *Game) Error!void {
+        // Title
+        const title = "GAME OVER";
+        const title_font_size = 48;
+        const title_width = rl.measureText(title, title_font_size);
+        const title_x = (@as(f32, @floatFromInt(self.window_width)) - @as(f32, @floatFromInt(title_width))) / 2.0;
+        rl.drawText(title, @intFromFloat(title_x), 200, title_font_size, rl.Color.red);
+        
+        // Death message
+        const death_msg = "You have fallen in the depths...";
+        const death_font_size = 20;
+        const death_width = rl.measureText(death_msg, death_font_size);
+        const death_x = (@as(f32, @floatFromInt(self.window_width)) - @as(f32, @floatFromInt(death_width))) / 2.0;
+        rl.drawText(death_msg, @intFromFloat(death_x), 280, death_font_size, rl.Color.white);
+        
+        // Buttons
+        self.game_over_menu_ui.restart_button.render();
+        self.game_over_menu_ui.main_menu_button.render();
+        
+        // Instructions
+        const instructions = "Press ENTER to restart or ESC for main menu";
+        const inst_font_size = 16;
+        const inst_width = rl.measureText(instructions, inst_font_size);
+        const inst_x = (@as(f32, @floatFromInt(self.window_width)) - @as(f32, @floatFromInt(inst_width))) / 2.0;
+        rl.drawText(instructions, @intFromFloat(inst_x), 600, inst_font_size, rl.Color.gray);
+    }
+    fn renderMainMenu(self: *Game) Error!void {
+        const title = "ZRogue";
+        const title_font_size = 72;
+        const title_width = rl.measureText(title, title_font_size);
+        const title_x = (@as(f32, @floatFromInt(self.window_width)) - @as(f32, @floatFromInt(title_width))) / 2.0;
+        rl.drawText(title, @intFromFloat(title_x), 150, title_font_size, rl.Color.white);
 
+        const subtitle = "A Roguelike Adventure";
+        const subtitle_font_size = 24;
+        const subtitle_width = rl.measureText(subtitle, subtitle_font_size);
+        const subtitle_x = (@as(f32, @floatFromInt(self.window_width)) - @as(f32, @floatFromInt(subtitle_width))) / 2.0;
+        rl.drawText(subtitle, @intFromFloat(subtitle_x), 240, subtitle_font_size, rl.Color.light_gray);
+
+        self.main_menu_ui.play_button.render();
+        self.main_menu_ui.quit_button.render();
+
+        // Instructions
+        const instructions = "Press ENTER to play or ESC to quit";
+        const inst_font_size = 16;
+        const inst_width = rl.measureText(instructions, inst_font_size);
+        const inst_x = (@as(f32, @floatFromInt(self.window_width)) - @as(f32, @floatFromInt(inst_width))) / 2.0;
+        rl.drawText(instructions, @intFromFloat(inst_x), 650, inst_font_size, rl.Color.gray);
+    }
+    fn renderPlayingGame(self: *Game) Error!void {
         const player_tile_coordinates = self.tileset.getTileCoordinates(self.player.glyph) catch |err| {
             std.log.err("Error getting texture coordinates for player: {}", .{err});
             return Error.RenderingFailed;
@@ -186,11 +278,6 @@ pub const Game = struct {
             std.log.err("Error getting texture coordinates for floor: {}", .{err});
             return Error.RenderingFailed;
         };
-
-        rl.beginDrawing();
-        defer rl.endDrawing();
-
-        rl.clearBackground(rl.Color.black);
 
         // DRAW PLAYER
         const player_dest_rect: rl.Rectangle = rl.Rectangle{ .x = self.player.position.x, .y = self.player.position.y, .height = self.tileset.tile_size, .width = self.tileset.tile_size };
@@ -234,27 +321,9 @@ pub const Game = struct {
             }
         }
     }
-    fn renderMainMenu(self: *Game) Error!void {
-        
-    }
-    fn renderPlayingGame(self: *Game) Error!void {
-
-    }
     fn startNewGame(self: *Game) Error!void {
-        self.asset_store.addTexture("tileset", "resources/redjack16x16.png") catch |err| {
-            std.log.err("Error adding texture: {}", .{err});
-            return Error.InitializationFailed;
-        };
         self.game_map = map.Map.generate(self.allocator, 80, 50, &self.enemies) catch |err| {
             std.log.err("Error generating map: {}", .{err});
-            return Error.InitializationFailed;
-        };
-        self.tileset = tileset.Tileset.init("tileset", tileset.GlyphMapType.Cp437, 16.0) catch |err| {
-            std.log.err("Error initiliazing tileset: {}", .{err});
-            return Error.InitializationFailed;
-        };
-        self.tileset_texture = self.asset_store.getTexture("tileset") catch |err| {
-            std.log.err("Error getting texture for tileset: {}", .{err});
             return Error.InitializationFailed;
         };
         const starting_room = self.game_map.startingRoom() catch |err| {
@@ -262,6 +331,29 @@ pub const Game = struct {
             return Error.InitializationFailed;
         };
         self.player.position = rl.Vector2{ .x = starting_room.center().x * self.tileset.tile_size, .y = starting_room.center().y * self.tileset.tile_size };
+    }
+    fn renderPauseMenu(self: *Game) Error!void {
+        // Semi-transparent overlay
+        rl.drawRectangle(0, 0, self.window_width, self.window_height, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 180 });
+        
+        // Title
+        const title = "PAUSED";
+        const title_font_size = 48;
+        const title_width = rl.measureText(title, title_font_size);
+        const title_x = (@as(f32, @floatFromInt(self.window_width)) - @as(f32, @floatFromInt(title_width))) / 2.0;
+        rl.drawText(title, @intFromFloat(title_x), 200, title_font_size, rl.Color.white);
+        
+        // Buttons
+        self.pause_menu_ui.resume_button.render();
+        self.pause_menu_ui.options_button.render();
+        self.pause_menu_ui.main_menu_button.render();
+        
+        // Instructions
+        const instructions = "Press ESC to resume";
+        const inst_font_size = 16;
+        const inst_width = rl.measureText(instructions, inst_font_size);
+        const inst_x = (@as(f32, @floatFromInt(self.window_width)) - @as(f32, @floatFromInt(inst_width))) / 2.0;
+        rl.drawText(instructions, @intFromFloat(inst_x), 600, inst_font_size, rl.Color.gray);
     }
     fn worldPositionToTilePosition(self: *Game, pos: rl.Vector2) fov.Point {
         return fov.Point{

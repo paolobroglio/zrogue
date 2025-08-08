@@ -1,5 +1,11 @@
 const rl = @import("raylib");
 
+const center_x = 640.0; // window_width / 2
+const center_y = 400.0; // window_height / 2
+const button_width = 200.0;
+const button_height = 50.0;
+const button_spacing = 60.0;
+
 pub const Button = struct {
     rect: rl.Rectangle,
     text: []const u8,
@@ -16,7 +22,7 @@ pub const Button = struct {
     pub fn update(self: *Button) void {
         const mouse_pos = rl.getMousePosition();
         self.is_hovered = rl.checkCollisionPointRec(mouse_pos, self.rect);
-        self.is_pressed = self.is_hovered and rl.isMouseButtonPressed(.mouse_button_left);
+        self.is_pressed = self.is_hovered and rl.isMouseButtonPressed(rl.MouseButton.left);
     }
 
     pub fn render(self: *const Button) void {
@@ -28,28 +34,49 @@ pub const Button = struct {
 
         // Center text in button
         const font_size = 20;
-        const text_width = rl.measureText(self.text.ptr, font_size);
+        const text_width = rl.measureText(@ptrCast(self.text), font_size);
         const text_x = self.rect.x + (self.rect.width - @as(f32, @floatFromInt(text_width))) / 2.0;
         const text_y = self.rect.y + (self.rect.height - font_size) / 2.0;
 
-        rl.drawText(self.text.ptr, @intFromFloat(text_x), @intFromFloat(text_y), font_size, text_color);
+        rl.drawText(@ptrCast(self.text), @intFromFloat(text_x), @intFromFloat(text_y), font_size, text_color);
     }
 };
 
 pub const MainMenuUI = struct {
-    main_menu_play_button: Button,
-    main_menu_quit_button: Button,
+    play_button: Button,
+    quit_button: Button,
 
-    pub fn init() MainMenuUI {}
+    pub fn init() MainMenuUI {
+        return MainMenuUI{ 
+            .play_button = Button.init(center_x - button_width / 2, center_y - button_spacing, button_width, button_height, "Play"), 
+            .quit_button = Button.init(center_x - button_width / 2, center_y + button_spacing, button_width, button_height, "Quit") 
+        };
+    }
 };
 
 pub const PauseMenuUI = struct {
-    pause_menu_resume_button: Button,
-    pause_menu_options_button: Button,
-    pause_menu_main_menu_button: Button,
+    resume_button: Button,
+    options_button: Button,
+    main_menu_button: Button,
+
+    pub fn init() PauseMenuUI {
+        return PauseMenuUI {
+            .resume_button = Button.init(center_x - button_width/2, center_y - button_spacing, button_width, button_height, "Resume"),
+            .options_button = Button.init(center_x - button_width/2, center_y, button_width, button_height, "Options"),
+            .main_menu_button = Button.init(center_x - button_width/2, center_y + button_spacing, button_width, button_height, "Main Menu"),
+           
+        };
+    }
 };
 
 pub const GameOverUI = struct {
-    game_over_restart_button: Button,
-    game_over_main_menu_button: Button,
+    restart_button: Button,
+    main_menu_button: Button,
+
+    pub fn init() GameOverUI {
+        return GameOverUI {
+            .restart_button = Button.init(center_x - button_width/2, center_y - button_spacing/2, button_width, button_height, "Restart"),
+            .main_menu_button = Button.init(center_x - button_width/2, center_y + button_spacing/2, button_width, button_height, "Main Menu"),
+        };
+    }
 };
