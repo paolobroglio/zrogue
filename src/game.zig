@@ -5,9 +5,15 @@ const map = @import("map.zig");
 const tileset = @import("tileset.zig");
 const fov = @import("fov.zig");
 const enmy = @import("enemy.zig");
+const plr = @import("player.zig");
 const rl = @import("raylib");
+const combat = @import("combat.zig");
+const ui = @import("ui.zig");
 
 pub const Error = error{ InitializationFailed, DeinitializationFailed, RunFailed, InputHandlingFailed, RenderingFailed, UpdateFailed };
+
+const Turn = enum { Player, Enemy };
+const GameState = enum { MainMenu, Playing, PauseMenu, GameOver };
 
 pub const Game = struct {
     allocator: std.mem.Allocator,
@@ -19,19 +25,26 @@ pub const Game = struct {
     fps: i32,
 
     is_running: bool,
+    game_state: GameState,
 
     asset_store: as.AssetStore,
     game_map: map.Map,
     tileset: tileset.Tileset,
+    tileset_texture: rl.Texture2D,
 
     visited_tiles_points: std.AutoHashMap(fov.Point, void),
     visible_tiles_points: std.AutoHashMap(fov.Point, void),
 
-    player_position: rl.Vector2,
+    current_turn: Turn,
+    player: plr.Player,
     enemies: std.ArrayList(enmy.Enemy),
 
+    main_menu_ui: ui.MainMenuUI,
+    game_over_menu_ui: ui.GameOverUI,
+    pause_menu_ui: ui.PauseMenuUI,
+
     pub fn init(allocator: std.mem.Allocator) Game {
-        return Game{ .allocator = allocator, .window_width = 1280, .window_height = 800, .vsync = true, .highdpi = true, .fps = 60, .is_running = false, .asset_store = as.AssetStore.init(allocator), .game_map = undefined, .tileset = undefined, .visible_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .visited_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .player_position = rl.Vector2.zero(), .enemies = std.ArrayList(enmy.Enemy).init(allocator) };
+        return Game{ .allocator = allocator, .window_width = 1280, .window_height = 800, .vsync = true, .highdpi = true, .fps = 60, .is_running = false, .game_state = GameState.MainMenu, .asset_store = as.AssetStore.init(allocator), .game_map = undefined, .tileset = undefined, .tileset_texture = undefined, .visible_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .visited_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .current_turn = Turn.Player, .player = plr.Player.init(rl.Vector2.zero(), '@'), .enemies = std.ArrayList(enmy.Enemy).init(allocator), .main_menu_ui = ui.MainMenuUI.init(), .pause_menu_ui = ui.PauseMenuUI.init(), .game_over_menu_ui = ui.GameOverUI.init() };
     }
     pub fn deinit(self: *Game) void {
         rl.closeWindow();
@@ -50,81 +63,210 @@ pub const Game = struct {
             std.log.err("Error adding texture: {}", .{err});
             return Error.InitializationFailed;
         };
-        self.game_map = map.Map.generate(self.allocator, 80, 50, &self.enemies) catch |err| {
-            std.log.err("Error generating map: {}", .{err});
-            return Error.InitializationFailed;
-        };
         self.tileset = tileset.Tileset.init("tileset", tileset.GlyphMapType.Cp437, 16.0) catch |err| {
             std.log.err("Error initiliazing tileset: {}", .{err});
             return Error.InitializationFailed;
         };
-
-        const starting_room = self.game_map.startingRoom() catch |err| {
-            std.log.err("Error getting the starting room: {}", .{err});
+        self.tileset_texture = self.asset_store.getTexture("tileset") catch |err| {
+            std.log.err("Error getting texture for tileset: {}", .{err});
             return Error.InitializationFailed;
         };
-        self.player_position = rl.Vector2{ .x = starting_room.center().x * self.tileset.tile_size, .y = starting_room.center().y * self.tileset.tile_size };
     }
     pub fn run(self: *Game) Error!void {
         self.is_running = true;
         try self.setup();
-        while (!rl.windowShouldClose()) {
+        while (!rl.windowShouldClose() and self.is_running) {
             try self.update();
             try self.render();
         }
     }
     fn update(self: *Game) Error!void {
-        const tile_size = self.tileset.tile_size;
-        var target_position = self.player_position;
-        if (rl.isKeyPressed(.right)) {
-            target_position.x += tile_size;
-        }
-        if (rl.isKeyPressed(.left)) {
-            target_position.x -= tile_size;
-        }
-        if (rl.isKeyPressed(.up)) {
-            target_position.y -= tile_size;
-        }
-        if (rl.isKeyPressed(.down)) {
-            target_position.y += tile_size;
-        }
-        // Check if the target position is occupied by an enemy
-        const enemy_hit = self.checkEnemyHitByPlayer(target_position);
-        if (enemy_hit != null) {
-            std.log.info("Player hit enemy!", .{});
-        } else {
-            // Check if the target position is a WALKABLE TILE
-            var target_player_point: fov.Point = self.worldPositionToTilePosition(target_position);
-            const target_tile = self.game_map.getTile(target_player_point.x, target_player_point.y);
-            if (target_tile != null and target_tile.?.walkable) {
-                self.player_position = target_position;
-                // Compute FOV - we could avoid to compute the FOV if the player doesn't move!!! Also visited tiles would be the same as the previous iteration
-                self.visible_tiles_points.clearAndFree();
-                self.visible_tiles_points = fov.computeFOV(self.allocator, target_player_point, 5, self.game_map) catch |err| {
-                    std.log.err("Error computing FOV: {}", .{err});
-                    return Error.RunFailed;
-                };
-                // Compute Visited Tiles
-                var it = self.visible_tiles_points.iterator();
-                while (it.next()) |entry| {
-                    self.visited_tiles_points.put(entry.key_ptr.*, {}) catch |err| {
-                        std.log.err("Error adding a visited tile point: {}", .{err});
-                        return Error.RunFailed;
-                    };
+        switch (self.game_state) {
+            GameState.MainMenu => {
+                self.main_menu_ui.play_button.update();
+                self.main_menu_ui.quit_button.update();
+
+                if (self.main_menu_ui.play_button.is_pressed) {
+                    try self.startNewGame();
+                    self.game_state = GameState.Playing;
                 }
-            } else {
-                target_player_point = self.worldPositionToTilePosition(self.player_position);
-            }
+                if (self.main_menu_ui.quit_button.is_pressed) {
+                    self.is_running = false;
+                }
+                if (rl.isKeyPressed(.escape)) {
+                    self.is_running = false;
+                }
+            },
+            GameState.PauseMenu => {
+                self.pause_menu_ui.main_menu_button.update();
+                self.pause_menu_ui.options_button.update();
+                self.pause_menu_ui.resume_button.update();
+
+                if (self.pause_menu_ui.main_menu_button.is_pressed) {
+                    try self.reset();
+                    self.game_state = GameState.MainMenu;
+                }
+                if (self.pause_menu_ui.options_button.is_pressed) {
+                    debug.print("Options menu", .{});
+                }
+                if (self.pause_menu_ui.resume_button.is_pressed) {
+                    self.game_state = GameState.Playing;
+                }
+            },
+            GameState.Playing => {
+                if (rl.isKeyPressed(.p)) {
+                    self.game_state = GameState.PauseMenu;
+                    return;
+                }
+                const tile_size = self.tileset.tile_size;
+                if (self.current_turn == Turn.Player) {
+                    var target_position = self.player.position;
+                    if (rl.isKeyPressed(.right)) {
+                        target_position.x += tile_size;
+                        self.current_turn = Turn.Enemy;
+                    }
+                    if (rl.isKeyPressed(.left)) {
+                        target_position.x -= tile_size;
+                        self.current_turn = Turn.Enemy;
+                    }
+                    if (rl.isKeyPressed(.up)) {
+                        target_position.y -= tile_size;
+                        self.current_turn = Turn.Enemy;
+                    }
+                    if (rl.isKeyPressed(.down)) {
+                        target_position.y += tile_size;
+                        self.current_turn = Turn.Enemy;
+                    }
+                    const enemy_hit = self.checkEnemyHitByPlayer(target_position);
+                    if (enemy_hit != null) {
+                        const enemy_idx: usize = enemy_hit.?;
+                        if (self.enemies.items[enemy_idx].combat_component.isDead()) {
+                            _ = self.enemies.swapRemove(enemy_idx);
+                        }
+                    } else {
+                        // Check if the target position is a WALKABLE TILE
+                        var target_player_point: fov.Point = self.worldPositionToTilePosition(target_position);
+                        const target_tile = self.game_map.getTile(target_player_point.x, target_player_point.y);
+                        if (target_tile != null and target_tile.?.walkable) {
+                            self.player.position = target_position;
+                            // Compute FOV - we could avoid to compute the FOV if the player doesn't move!!! Also visited tiles would be the same as the previous iteration
+                            self.visible_tiles_points.clearAndFree();
+                            self.visible_tiles_points = fov.computeFOV(self.allocator, target_player_point, 5, self.game_map) catch |err| {
+                                std.log.err("Error computing FOV: {}", .{err});
+                                return Error.RunFailed;
+                            };
+                            // Compute Visited Tiles
+                            var it = self.visible_tiles_points.iterator();
+                            while (it.next()) |entry| {
+                                self.visited_tiles_points.put(entry.key_ptr.*, {}) catch |err| {
+                                    std.log.err("Error adding a visited tile point: {}", .{err});
+                                    return Error.RunFailed;
+                                };
+                            }
+                        } else {
+                            target_player_point = self.worldPositionToTilePosition(self.player.position);
+                        }
+                    }
+                } else {
+                    self.executeEnemyTurn();
+                    self.current_turn = Turn.Player;
+                }
+                self.updateAfterCombat();
+            },
+            GameState.GameOver => {
+                self.game_over_menu_ui.main_menu_button.update();
+                self.game_over_menu_ui.restart_button.update();
+
+                if (self.game_over_menu_ui.main_menu_button.is_pressed) {
+                    try self.reset();
+                    self.game_state = GameState.MainMenu;
+                }
+                if (self.game_over_menu_ui.restart_button.is_pressed) {
+                    try self.reset();
+                    try self.startNewGame();
+                    self.game_state = GameState.Playing;
+                }
+            },
         }
-        self.execute_enemy_turn();
+    }
+    fn reset(self: *Game) Error!void {
+        self.game_map.destroy();
+        self.visited_tiles_points.clearRetainingCapacity();
+        self.visible_tiles_points.clearRetainingCapacity();
+        self.enemies.clearRetainingCapacity();
     }
     fn render(self: *Game) Error!void {
-        // TODO: move textures to each entity type??? avoid to create the coordinates each time
-        const tileset_texture: rl.Texture2D = self.asset_store.getTexture("tileset") catch |err| {
-            std.log.err("Error getting texture for tileset: {}", .{err});
-            return Error.RenderingFailed;
-        };
-        const player_tile_coordinates = self.tileset.getTileCoordinates('@') catch |err| {
+        rl.beginDrawing();
+        defer rl.endDrawing();
+
+        rl.clearBackground(rl.Color.black);
+
+        switch (self.game_state) {
+            GameState.MainMenu => {
+                try self.renderMainMenu();
+            },
+            GameState.PauseMenu => {
+                try self.renderPauseMenu();
+            },
+            GameState.Playing => {
+                try self.renderPlayingGame();
+            },
+            GameState.GameOver => {
+                try self.renderGameOverMenu();
+            },
+        }
+    }
+    fn renderGameOverMenu(self: *Game) Error!void {
+        // Title
+        const title = "GAME OVER";
+        const title_font_size = 48;
+        const title_width = rl.measureText(title, title_font_size);
+        const title_x = (@as(f32, @floatFromInt(self.window_width)) - @as(f32, @floatFromInt(title_width))) / 2.0;
+        rl.drawText(title, @intFromFloat(title_x), 200, title_font_size, rl.Color.red);
+        
+        // Death message
+        const death_msg = "You have fallen in the depths...";
+        const death_font_size = 20;
+        const death_width = rl.measureText(death_msg, death_font_size);
+        const death_x = (@as(f32, @floatFromInt(self.window_width)) - @as(f32, @floatFromInt(death_width))) / 2.0;
+        rl.drawText(death_msg, @intFromFloat(death_x), 280, death_font_size, rl.Color.white);
+        
+        // Buttons
+        self.game_over_menu_ui.restart_button.render();
+        self.game_over_menu_ui.main_menu_button.render();
+        
+        // Instructions
+        const instructions = "Press ENTER to restart or ESC for main menu";
+        const inst_font_size = 16;
+        const inst_width = rl.measureText(instructions, inst_font_size);
+        const inst_x = (@as(f32, @floatFromInt(self.window_width)) - @as(f32, @floatFromInt(inst_width))) / 2.0;
+        rl.drawText(instructions, @intFromFloat(inst_x), 600, inst_font_size, rl.Color.gray);
+    }
+    fn renderMainMenu(self: *Game) Error!void {
+        const title = "ZRogue";
+        const title_font_size = 72;
+        const title_width = rl.measureText(title, title_font_size);
+        const title_x = (@as(f32, @floatFromInt(self.window_width)) - @as(f32, @floatFromInt(title_width))) / 2.0;
+        rl.drawText(title, @intFromFloat(title_x), 150, title_font_size, rl.Color.white);
+
+        const subtitle = "A Roguelike Adventure";
+        const subtitle_font_size = 24;
+        const subtitle_width = rl.measureText(subtitle, subtitle_font_size);
+        const subtitle_x = (@as(f32, @floatFromInt(self.window_width)) - @as(f32, @floatFromInt(subtitle_width))) / 2.0;
+        rl.drawText(subtitle, @intFromFloat(subtitle_x), 240, subtitle_font_size, rl.Color.light_gray);
+
+        self.main_menu_ui.play_button.render();
+        self.main_menu_ui.quit_button.render();
+
+        // Instructions
+        const instructions = "Press ENTER to play or ESC to quit";
+        const inst_font_size = 16;
+        const inst_width = rl.measureText(instructions, inst_font_size);
+        const inst_x = (@as(f32, @floatFromInt(self.window_width)) - @as(f32, @floatFromInt(inst_width))) / 2.0;
+        rl.drawText(instructions, @intFromFloat(inst_x), 650, inst_font_size, rl.Color.gray);
+    }
+    fn renderPlayingGame(self: *Game) Error!void {
+        const player_tile_coordinates = self.tileset.getTileCoordinates(self.player.glyph) catch |err| {
             std.log.err("Error getting texture coordinates for player: {}", .{err});
             return Error.RenderingFailed;
         };
@@ -136,26 +278,21 @@ pub const Game = struct {
             std.log.err("Error getting texture coordinates for floor: {}", .{err});
             return Error.RenderingFailed;
         };
-        const enemy_tile_coordinates = self.tileset.getTileCoordinates('☺') catch |err| {
-            std.log.err("Error getting texture coordinates for enemy: {}", .{err});
-            return Error.RenderingFailed;
-        };
-
-        rl.beginDrawing();
-        defer rl.endDrawing();
-
-        rl.clearBackground(rl.Color.black);
 
         // DRAW PLAYER
-        const player_dest_rect: rl.Rectangle = rl.Rectangle{ .x = self.player_position.x, .y = self.player_position.y, .height = self.tileset.tile_size, .width = self.tileset.tile_size };
-        rl.drawTexturePro(tileset_texture, player_tile_coordinates.rect, player_dest_rect, .{ .x = 0, .y = 0 }, 0.0, rl.Color.ray_white);
+        const player_dest_rect: rl.Rectangle = rl.Rectangle{ .x = self.player.position.x, .y = self.player.position.y, .height = self.tileset.tile_size, .width = self.tileset.tile_size };
+        rl.drawTexturePro(self.tileset_texture, player_tile_coordinates.rect, player_dest_rect, .{ .x = 0, .y = 0 }, 0.0, rl.Color.ray_white);
 
         // DRAW ENEMIES
         for (self.enemies.items) |enemy| {
+            const enemy_tile_coordinates = self.tileset.getTileCoordinates(enemy.glyph) catch |err| {
+                std.log.err("Error getting texture coordinates for enemy: {}", .{err});
+                return Error.RenderingFailed;
+            };
             const tile_position = self.worldPositionToTilePosition(enemy.position);
             const enemy_dest_rect = rl.Rectangle{ .x = enemy.position.x, .y = enemy.position.y, .height = self.tileset.tile_size, .width = self.tileset.tile_size };
             if (self.visible_tiles_points.contains(tile_position)) {
-                rl.drawTexturePro(tileset_texture, enemy_tile_coordinates.rect, enemy_dest_rect, .{ .x = 0, .y = 0 }, 0.0, rl.Color.red);
+                rl.drawTexturePro(self.tileset_texture, enemy_tile_coordinates.rect, enemy_dest_rect, .{ .x = 0, .y = 0 }, 0.0, rl.Color.red);
             }
         }
 
@@ -175,14 +312,48 @@ pub const Game = struct {
             if (self.visible_tiles_points.contains(point)) {
                 const bg_color = tile.light.bgColor;
                 // background
-                rl.drawTexturePro(tileset_texture, tile_src_rect, tile_dest_rect, .{ .x = 0, .y = 0 }, 0.0, bg_color);
+                rl.drawTexturePro(self.tileset_texture, tile_src_rect, tile_dest_rect, .{ .x = 0, .y = 0 }, 0.0, bg_color);
             } else {
                 if (self.visited_tiles_points.contains(point)) {
                     const bg_color = tile.dark.bgColor;
-                    rl.drawTexturePro(tileset_texture, tile_src_rect, tile_dest_rect, .{ .x = 0, .y = 0 }, 0.0, bg_color);
+                    rl.drawTexturePro(self.tileset_texture, tile_src_rect, tile_dest_rect, .{ .x = 0, .y = 0 }, 0.0, bg_color);
                 }
             }
         }
+    }
+    fn startNewGame(self: *Game) Error!void {
+        self.game_map = map.Map.generate(self.allocator, 80, 50, &self.enemies) catch |err| {
+            std.log.err("Error generating map: {}", .{err});
+            return Error.InitializationFailed;
+        };
+        const starting_room = self.game_map.startingRoom() catch |err| {
+            std.log.err("Error getting the starting room: {}", .{err});
+            return Error.InitializationFailed;
+        };
+        self.player.position = rl.Vector2{ .x = starting_room.center().x * self.tileset.tile_size, .y = starting_room.center().y * self.tileset.tile_size };
+    }
+    fn renderPauseMenu(self: *Game) Error!void {
+        // Semi-transparent overlay
+        rl.drawRectangle(0, 0, self.window_width, self.window_height, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 180 });
+        
+        // Title
+        const title = "PAUSED";
+        const title_font_size = 48;
+        const title_width = rl.measureText(title, title_font_size);
+        const title_x = (@as(f32, @floatFromInt(self.window_width)) - @as(f32, @floatFromInt(title_width))) / 2.0;
+        rl.drawText(title, @intFromFloat(title_x), 200, title_font_size, rl.Color.white);
+        
+        // Buttons
+        self.pause_menu_ui.resume_button.render();
+        self.pause_menu_ui.options_button.render();
+        self.pause_menu_ui.main_menu_button.render();
+        
+        // Instructions
+        const instructions = "Press ESC to resume";
+        const inst_font_size = 16;
+        const inst_width = rl.measureText(instructions, inst_font_size);
+        const inst_x = (@as(f32, @floatFromInt(self.window_width)) - @as(f32, @floatFromInt(inst_width))) / 2.0;
+        rl.drawText(instructions, @intFromFloat(inst_x), 600, inst_font_size, rl.Color.gray);
     }
     fn worldPositionToTilePosition(self: *Game, pos: rl.Vector2) fov.Point {
         return fov.Point{
@@ -190,17 +361,37 @@ pub const Game = struct {
             .y = @intFromFloat(pos.y / self.tileset.tile_size),
         };
     }
-    fn checkEnemyHitByPlayer(self: *const Game, player_target_pos: rl.Vector2) ?enmy.Enemy {
-        for (self.enemies.items) |enemy| {
+    fn checkEnemyHitByPlayer(self: *Game, player_target_pos: rl.Vector2) ?usize {
+        for (self.enemies.items, 0..) |*enemy, i| {
             if (enemy.position.x == player_target_pos.x and enemy.position.y == player_target_pos.y) {
-                return enemy;
+                const combat_result = combat.simpleSubtraction(self.player.combat_component, &enemy.combat_component);
+                std.log.info("Player hit enemy: {}!", .{combat_result});
+                return i;
             }
         }
         return null;
     }
-    fn execute_enemy_turn(self: *Game) void {
+    fn executeEnemyTurn(self: *Game) void {
+        const threshold_distance: f32 = 5.0;
         for (self.enemies.items) |enemy| {
-            std.log.info("Enemy {} turn", .{enemy});
+            const dx: f32 = self.player.position.x - enemy.position.x;
+            const dy: f32 = self.player.position.y - enemy.position.y;
+            const chebyshev_distance = @divFloor(@max(@abs(dx), @abs(dy)), self.tileset.tile_size);
+            //debug.print("Enemy at ({},{}) distance from player {}\n", .{ enemy.position.x, enemy.position.y, chebyshev_distance });
+            if (chebyshev_distance == 1.0) {
+                //debug.print("Enemy at ({},{}) attacks the player\n", .{ enemy.position.x, enemy.position.y });
+                const combat_result = combat.simpleSubtraction(enemy.combat_component, &self.player.combat_component);
+                std.log.info("Enemy hit player: {}!", .{combat_result});
+            } else if (chebyshev_distance >= threshold_distance) {
+                //debug.print("Enemy at ({},{}) doesn't move\n", .{ enemy.position.x, enemy.position.y });
+            } else {
+                //debug.print("Enemy at ({},{}) moves toward the player\n", .{ enemy.position.x, enemy.position.y });
+            }
+        }
+    }
+    fn updateAfterCombat(self: *Game) void {
+        if (self.player.combat_component.isDead()) {
+            std.log.info("GAME OVER!", .{});
         }
     }
 };

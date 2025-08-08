@@ -176,7 +176,7 @@ pub const Map = struct {
 
                 // Add enemies
                 const room_center = new_room.center();
-                const new_enemy = enemy.Enemy{ .position = rl.Vector2{ .x = room_center.x * 16.0, .y = room_center.y * 16.0 } };
+                const new_enemy = enemy.Enemy.warrior(room_center.scale(16.0));
                 try enemies.append(new_enemy);
             }
 
