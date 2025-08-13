@@ -6,10 +6,12 @@ const tileset = @import("tileset.zig");
 const fov = @import("fov.zig");
 const enmy = @import("enemy.zig");
 const plr = @import("player.zig");
+const item = @import("item.zig");
 const rl = @import("raylib");
 const combat = @import("combat.zig");
 const ui = @import("ui.zig");
 const hud = @import("hud.zig");
+const probability = @import("probability.zig");
 
 pub const Error = error{ InitializationFailed, DeinitializationFailed, RunFailed, InputHandlingFailed, RenderingFailed, UpdateFailed };
 
@@ -39,6 +41,7 @@ pub const Game = struct {
     current_turn: Turn,
     player: plr.Player,
     enemies: std.ArrayList(enmy.Enemy),
+    items: std.ArrayList(item.Item),
 
     main_menu_ui: ui.MainMenuUI,
     game_over_menu_ui: ui.GameOverUI,
@@ -48,7 +51,7 @@ pub const Game = struct {
     camera: rl.Camera2D,
 
     pub fn init(allocator: std.mem.Allocator) Game {
-        return Game{ .allocator = allocator, .window_width = 1280, .window_height = 800, .vsync = true, .highdpi = true, .fps = 60, .is_running = false, .game_state = GameState.MainMenu, .asset_store = as.AssetStore.init(allocator), .game_map = undefined, .tileset = undefined, .tileset_texture = undefined, .visible_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .visited_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .current_turn = Turn.Player, .player = plr.Player.init(rl.Vector2.zero(), '@'), .enemies = std.ArrayList(enmy.Enemy).init(allocator), .main_menu_ui = ui.MainMenuUI.init(), .pause_menu_ui = ui.PauseMenuUI.init(), .game_over_menu_ui = ui.GameOverUI.init(), .hud = undefined, .camera = undefined };
+        return Game{ .allocator = allocator, .window_width = 1280, .window_height = 800, .vsync = true, .highdpi = true, .fps = 60, .is_running = false, .game_state = GameState.MainMenu, .asset_store = as.AssetStore.init(allocator), .game_map = undefined, .tileset = undefined, .tileset_texture = undefined, .visible_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .visited_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .current_turn = Turn.Player, .player = plr.Player.init(rl.Vector2.zero(), '@'), .enemies = std.ArrayList(enmy.Enemy).init(allocator), .items = std.ArrayList(item.Item).init(allocator), .main_menu_ui = ui.MainMenuUI.init(), .pause_menu_ui = ui.PauseMenuUI.init(), .game_over_menu_ui = ui.GameOverUI.init(), .hud = undefined, .camera = undefined };
     }
     pub fn deinit(self: *Game) void {
         rl.closeWindow();
@@ -57,9 +60,11 @@ pub const Game = struct {
         self.visited_tiles_points.deinit();
         self.visible_tiles_points.deinit();
         self.enemies.deinit();
+        self.items.deinit();
         self.hud.deinit();
     }
     fn setup(self: *Game) Error!void {
+        std.log.info("[ZRogue] Setup...", .{});
         rl.setConfigFlags(.{ .window_highdpi = self.highdpi, .window_resizable = false, .vsync_hint = self.vsync });
         rl.initWindow(self.window_width, self.window_height, "ZRogue");
         rl.setTargetFPS(self.fps);
@@ -128,7 +133,7 @@ pub const Game = struct {
                 }
             },
             GameState.Playing => {
-                if (rl.isKeyPressed(.p)) {
+                if (rl.isKeyPressed(.m)) {
                     self.game_state = GameState.PauseMenu;
                     return;
                 }
@@ -150,6 +155,16 @@ pub const Game = struct {
                     if (rl.isKeyPressed(.down)) {
                         target_position.y += tile_size;
                         self.current_turn = Turn.Enemy;
+                    }
+                    if (rl.isKeyPressed(.p)) {
+                        // if current tile contains item, pick it up
+                        const item_at_position = self.getItemAtCurrentPosition();
+                        if (item_at_position != null) {
+                            const i = item_at_position.?;
+                            // add to inventory
+                            // remove from items
+                            self.hud.addMessage("You picked up a {s}", .{i.name}, hud.HUDMessageType.Info) catch {};
+                        }
                     }
                     const enemy_hit = self.checkEnemyHitByPlayer(target_position);
                     if (enemy_hit != null) {
@@ -284,7 +299,6 @@ pub const Game = struct {
         self.main_menu_ui.play_button.render();
         self.main_menu_ui.quit_button.render();
 
-        // Instructions
         const instructions = "Press ENTER to play or ESC to quit";
         const inst_font_size = 16;
         const inst_width = rl.measureText(instructions, inst_font_size);
@@ -322,6 +336,19 @@ pub const Game = struct {
             }
         }
 
+        // DRAW ITEMS
+        for (self.items.items) |i| {
+            const item_tile_coordinates = self.tileset.getTileCoordinates(i.glyph) catch |err| {
+                std.log.err("Error getting texture coordinates for item: {}", .{err});
+                return Error.RenderingFailed;
+            };
+            const tile_position = self.worldPositionToTilePosition(i.position);
+            const item_dest_rect = rl.Rectangle{ .x = i.position.x, .y = i.position.y, .height = self.tileset.tile_size, .width = self.tileset.tile_size };
+            if (self.visible_tiles_points.contains(tile_position)) {
+                rl.drawTexturePro(self.tileset_texture, item_tile_coordinates.rect, item_dest_rect, .{ .x = 0, .y = 0 }, 0.0, rl.Color.green);
+            }
+        }
+
         // DRAW MAP
         for (self.game_map.tiles.items, 0..) |tile, index| {
             const map_width: usize = @intCast(self.game_map.width);
@@ -353,7 +380,8 @@ pub const Game = struct {
         self.hud.render(self.window_width, self.window_height, self.player.combat_component.hp, self.player.combat_component.max_hp);
     }
     fn startNewGame(self: *Game) Error!void {
-        self.game_map = map.Map.generate(self.allocator, 80, 50, &self.enemies) catch |err| {
+        std.log.info("[ZRogue] Starting new game...", .{});
+        self.game_map = map.Map.generate(self.allocator, 80, 50, &self.enemies, &self.items) catch |err| {
             std.log.err("Error generating map: {}", .{err});
             return Error.InitializationFailed;
         };
@@ -362,6 +390,8 @@ pub const Game = struct {
             return Error.InitializationFailed;
         };
         self.player.position = rl.Vector2{ .x = starting_room.center().x * self.tileset.tile_size, .y = starting_room.center().y * self.tileset.tile_size };
+        probability.initRandom();
+        std.log.info("[ZRogue] Game started", .{});
     }
     fn renderPauseMenu(self: *Game) Error!void {
         // Semi-transparent overlay
@@ -398,6 +428,14 @@ pub const Game = struct {
                 const combat_result = combat.simpleSubtraction(self.player.combat_component, &enemy.combat_component);
 
                 self.hud.addMessage("You hit the {s} for {} damage!", .{enemy.name, combat_result.damage_dealt}, hud.HUDMessageType.Combat) catch {};
+                return i;
+            }
+        }
+        return null;
+    }
+    fn getItemAtCurrentPosition(self: *Game) ?item.Item {
+        for (self.items.items) |i| {
+            if (i.position.x == self.player.position.x and i.position.y == self.player.position.y) {
                 return i;
             }
         }

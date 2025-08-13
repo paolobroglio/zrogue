@@ -3,9 +3,7 @@ const rl = @import("raylib");
 const component = @import("component.zig");
 
 pub const ItemType = enum {
-  Consumable,
-  Weapon,
-  Armor
+  Consumable
 };
 
 pub const ConsumableData = struct {

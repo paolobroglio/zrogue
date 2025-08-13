@@ -1,6 +1,8 @@
 const std = @import("std");
 const rl = @import("raylib");
 const enemy = @import("enemy.zig");
+const item = @import("item.zig");
+const probability = @import("probability.zig");
 
 const Error = error{MapNotInitialized};
 
@@ -139,7 +141,7 @@ pub const Map = struct {
         }
     }
 
-    pub fn generate(allocator: std.mem.Allocator, width: i32, height: i32, enemies: *std.ArrayList(enemy.Enemy)) !Map {
+    pub fn generate(allocator: std.mem.Allocator, width: i32, height: i32, enemies: *std.ArrayList(enemy.Enemy), items: *std.ArrayList(item.Item)) !Map {
         var game_map = try init(allocator, width, height);
 
         const max_rooms: i32 = 30;
@@ -182,6 +184,17 @@ pub const Map = struct {
 
             try game_map.rooms.append(new_room);
         }
+
+        for (game_map.tiles.items) |tile| {
+            const potion_spawn_probability = probability.chance(2);
+            if (tile.walkable and potion_spawn_probability) {
+                const x: f32 = @floatFromInt(tile.x);
+                const y: f32 = @floatFromInt(tile.y);
+                const item_position = rl.Vector2 {.x = x, .y = y};
+                try items.append(item.Item.healthPotion(item_position.scale(16.0)));
+            }
+        }
+
         return game_map;
     }
 
