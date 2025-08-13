@@ -1,6 +1,5 @@
 const std = @import("std");
 const rl = @import("raylib");
-const tset = @import("tileset.zig");
 const component = @import("component.zig");
 
 pub const Enemy = struct {
