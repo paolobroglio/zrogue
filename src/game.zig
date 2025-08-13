@@ -158,12 +158,16 @@ pub const Game = struct {
                     }
                     if (rl.isKeyPressed(.p)) {
                         // if current tile contains item, pick it up
-                        const item_at_position = self.getItemAtCurrentPosition();
-                        if (item_at_position != null) {
-                            const i = item_at_position.?;
+                        const item_position = self.getItemAtCurrentPosition();
+                        if (item_position != null) {
+                            const i = &self.items.items[item_position.?];
                             // add to inventory
                             // remove from items
                             self.hud.addMessage("You picked up a {s}", .{i.name}, hud.HUDMessageType.Info) catch {};
+                            const can_remove_item = self.updateItem(i);
+                            if (can_remove_item) {
+                                _ = self.items.swapRemove(item_position.?);
+                            }
                         }
                     }
                     const enemy_hit = self.checkEnemyHitByPlayer(target_position);
@@ -227,8 +231,22 @@ pub const Game = struct {
         self.camera.target = self.player.position;
         self.camera.offset = rl.Vector2{
             .x = @as(f32, @floatFromInt(self.window_width)) / 2.0,
-            .y = available_height / 2.0, // Center in available space above HUD
+            .y = available_height / 2.0,
         };
+    }
+    fn updateItem(self: *Game, i: *item.Item) bool {
+        // Consume
+        if (i.isConsumable()) {
+            if (i.getConsumableData()) |consumable_data| {
+                self.player.combat_component.addHpClamped(consumable_data.healing_value);
+                if (i.charges == 1) {
+                    return true;
+                }
+                i.charges -= 1;
+            }
+        }
+        // TODO: Equip
+        return false;
     }
     fn reset(self: *Game) Error!void {
         self.game_map.destroy();
@@ -433,10 +451,10 @@ pub const Game = struct {
         }
         return null;
     }
-    fn getItemAtCurrentPosition(self: *Game) ?item.Item {
-        for (self.items.items) |i| {
+    fn getItemAtCurrentPosition(self: *Game) ?usize {
+        for (self.items.items, 0..) |i, idx| {
             if (i.position.x == self.player.position.x and i.position.y == self.player.position.y) {
-                return i;
+                return idx;
             }
         }
         return null;

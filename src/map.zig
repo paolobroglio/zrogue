@@ -186,7 +186,7 @@ pub const Map = struct {
         }
 
         for (game_map.tiles.items) |tile| {
-            const potion_spawn_probability = probability.chance(2);
+            const potion_spawn_probability = probability.chance(1);
             if (tile.walkable and potion_spawn_probability) {
                 const x: f32 = @floatFromInt(tile.x);
                 const y: f32 = @floatFromInt(tile.y);
