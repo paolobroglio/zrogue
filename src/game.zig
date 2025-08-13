@@ -397,7 +397,7 @@ pub const Game = struct {
             if (enemy.position.x == player_target_pos.x and enemy.position.y == player_target_pos.y) {
                 const combat_result = combat.simpleSubtraction(self.player.combat_component, &enemy.combat_component);
 
-                self.hud.addMessage("You hit the enemy for {} damage!", .{combat_result.damage_dealt}, hud.HUDMessageType.Combat) catch {};
+                self.hud.addMessage("You hit the {s} for {} damage!", .{enemy.name, combat_result.damage_dealt}, hud.HUDMessageType.Combat) catch {};
                 return i;
             }
         }
@@ -413,7 +413,7 @@ pub const Game = struct {
                 const combat_result = combat.simpleSubtraction(enemy.combat_component, &self.player.combat_component);
                 // Add message to HUD
                 //defer self.allocator.free(damage_message);
-                self.hud.addMessage("The enemy hits you for {} damage!", .{combat_result.damage_dealt}, hud.HUDMessageType.Damage) catch {};
+                self.hud.addMessage("{s} hits you for {} damage!", .{enemy.name, combat_result.damage_dealt}, hud.HUDMessageType.Damage) catch {};
 
             } else if (chebyshev_distance >= threshold_distance) {
                 //debug.print("Enemy at ({},{}) doesn't move\n", .{ enemy.position.x, enemy.position.y });
