@@ -80,7 +80,7 @@ pub const Game = struct {
         const camera_x: f32 = @floatFromInt(self.window_width);
         const camera_y: f32 = @floatFromInt(self.window_height);
 
-        self.camera = rl.Camera2D{ .offset = rl.Vector2{ .x = camera_x / 2.0, .y = camera_y / 2.0 }, .target = self.player.position, .rotation = 0.0, .zoom = 1.0 };
+        self.camera = rl.Camera2D{ .offset = rl.Vector2{ .x = camera_x / 2.0, .y = camera_y / 2.0 }, .target = self.player.position, .rotation = 0.0, .zoom = 2.0 };
         self.hud = hud.HUD.init(self.allocator) catch |err| {
             std.log.err("Error initializing HUD: {}", .{err});
             return Error.InitializationFailed;
