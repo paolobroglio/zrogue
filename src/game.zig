@@ -43,8 +43,10 @@ pub const Game = struct {
     game_over_menu_ui: ui.GameOverUI,
     pause_menu_ui: ui.PauseMenuUI,
 
+    camera: rl.Camera2D,
+
     pub fn init(allocator: std.mem.Allocator) Game {
-        return Game{ .allocator = allocator, .window_width = 1280, .window_height = 800, .vsync = true, .highdpi = true, .fps = 60, .is_running = false, .game_state = GameState.MainMenu, .asset_store = as.AssetStore.init(allocator), .game_map = undefined, .tileset = undefined, .tileset_texture = undefined, .visible_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .visited_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .current_turn = Turn.Player, .player = plr.Player.init(rl.Vector2.zero(), '@'), .enemies = std.ArrayList(enmy.Enemy).init(allocator), .main_menu_ui = ui.MainMenuUI.init(), .pause_menu_ui = ui.PauseMenuUI.init(), .game_over_menu_ui = ui.GameOverUI.init() };
+        return Game{ .allocator = allocator, .window_width = 1280, .window_height = 800, .vsync = true, .highdpi = true, .fps = 60, .is_running = false, .game_state = GameState.MainMenu, .asset_store = as.AssetStore.init(allocator), .game_map = undefined, .tileset = undefined, .tileset_texture = undefined, .visible_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .visited_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .current_turn = Turn.Player, .player = plr.Player.init(rl.Vector2.zero(), '@'), .enemies = std.ArrayList(enmy.Enemy).init(allocator), .main_menu_ui = ui.MainMenuUI.init(), .pause_menu_ui = ui.PauseMenuUI.init(), .game_over_menu_ui = ui.GameOverUI.init(), .camera = undefined };
     }
     pub fn deinit(self: *Game) void {
         rl.closeWindow();
@@ -71,6 +73,11 @@ pub const Game = struct {
             std.log.err("Error getting texture for tileset: {}", .{err});
             return Error.InitializationFailed;
         };
+
+        const camera_x: f32 = @floatFromInt(self.window_width);
+        const camera_y: f32 = @floatFromInt(self.window_height);
+
+        self.camera = rl.Camera2D{ .offset = rl.Vector2{ .x = camera_x / 2.0, .y = camera_y / 2.0 }, .target = self.player.position, .rotation = 0.0, .zoom = 1.0 };
     }
     pub fn run(self: *Game) Error!void {
         self.is_running = true;
@@ -172,6 +179,7 @@ pub const Game = struct {
                     self.current_turn = Turn.Player;
                 }
                 self.updateAfterCombat();
+                self.updateCamera();
             },
             GameState.GameOver => {
                 self.game_over_menu_ui.main_menu_button.update();
@@ -188,6 +196,16 @@ pub const Game = struct {
                 }
             },
         }
+    }
+    fn updateCamera(self: *Game) void {
+        const hud_height: f32 = 150.0;
+        const available_height = @as(f32, @floatFromInt(self.window_height)) - hud_height;
+
+        self.camera.target = self.player.position;
+        self.camera.offset = rl.Vector2{
+            .x = @as(f32, @floatFromInt(self.window_width)) / 2.0,
+            .y = available_height / 2.0, // Center in available space above HUD
+        };
     }
     fn reset(self: *Game) Error!void {
         self.game_map.destroy();
@@ -223,18 +241,18 @@ pub const Game = struct {
         const title_width = rl.measureText(title, title_font_size);
         const title_x = (@as(f32, @floatFromInt(self.window_width)) - @as(f32, @floatFromInt(title_width))) / 2.0;
         rl.drawText(title, @intFromFloat(title_x), 200, title_font_size, rl.Color.red);
-        
+
         // Death message
         const death_msg = "You have fallen in the depths...";
         const death_font_size = 20;
         const death_width = rl.measureText(death_msg, death_font_size);
         const death_x = (@as(f32, @floatFromInt(self.window_width)) - @as(f32, @floatFromInt(death_width))) / 2.0;
         rl.drawText(death_msg, @intFromFloat(death_x), 280, death_font_size, rl.Color.white);
-        
+
         // Buttons
         self.game_over_menu_ui.restart_button.render();
         self.game_over_menu_ui.main_menu_button.render();
-        
+
         // Instructions
         const instructions = "Press ENTER to restart or ESC for main menu";
         const inst_font_size = 16;
@@ -278,7 +296,7 @@ pub const Game = struct {
             std.log.err("Error getting texture coordinates for floor: {}", .{err});
             return Error.RenderingFailed;
         };
-
+        rl.beginMode2D(self.camera);
         // DRAW PLAYER
         const player_dest_rect: rl.Rectangle = rl.Rectangle{ .x = self.player.position.x, .y = self.player.position.y, .height = self.tileset.tile_size, .width = self.tileset.tile_size };
         rl.drawTexturePro(self.tileset_texture, player_tile_coordinates.rect, player_dest_rect, .{ .x = 0, .y = 0 }, 0.0, rl.Color.ray_white);
@@ -320,6 +338,8 @@ pub const Game = struct {
                 }
             }
         }
+
+        rl.endMode2D();
     }
     fn startNewGame(self: *Game) Error!void {
         self.game_map = map.Map.generate(self.allocator, 80, 50, &self.enemies) catch |err| {
@@ -335,19 +355,19 @@ pub const Game = struct {
     fn renderPauseMenu(self: *Game) Error!void {
         // Semi-transparent overlay
         rl.drawRectangle(0, 0, self.window_width, self.window_height, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 180 });
-        
+
         // Title
         const title = "PAUSED";
         const title_font_size = 48;
         const title_width = rl.measureText(title, title_font_size);
         const title_x = (@as(f32, @floatFromInt(self.window_width)) - @as(f32, @floatFromInt(title_width))) / 2.0;
         rl.drawText(title, @intFromFloat(title_x), 200, title_font_size, rl.Color.white);
-        
+
         // Buttons
         self.pause_menu_ui.resume_button.render();
         self.pause_menu_ui.options_button.render();
         self.pause_menu_ui.main_menu_button.render();
-        
+
         // Instructions
         const instructions = "Press ESC to resume";
         const inst_font_size = 16;
