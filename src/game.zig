@@ -51,7 +51,7 @@ pub const Game = struct {
     camera: rl.Camera2D,
 
     pub fn init(allocator: std.mem.Allocator) Game {
-        return Game{ .allocator = allocator, .window_width = 1280, .window_height = 800, .vsync = true, .highdpi = true, .fps = 60, .is_running = false, .game_state = GameState.MainMenu, .asset_store = as.AssetStore.init(allocator), .game_map = undefined, .tileset = undefined, .tileset_texture = undefined, .visible_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .visited_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .current_turn = Turn.Player, .player = plr.Player.init(rl.Vector2.zero(), '@'), .enemies = std.ArrayList(enmy.Enemy).init(allocator), .items = std.ArrayList(item.Item).init(allocator), .main_menu_ui = ui.MainMenuUI.init(), .pause_menu_ui = ui.PauseMenuUI.init(), .game_over_menu_ui = ui.GameOverUI.init(), .hud = undefined, .camera = undefined };
+        return Game{ .allocator = allocator, .window_width = 1280, .window_height = 800, .vsync = true, .highdpi = true, .fps = 60, .is_running = false, .game_state = GameState.MainMenu, .asset_store = as.AssetStore.init(allocator), .game_map = undefined, .tileset = undefined, .tileset_texture = undefined, .visible_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .visited_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .current_turn = Turn.Player, .player = plr.Player.init(allocator, rl.Vector2.zero(), '@'), .enemies = std.ArrayList(enmy.Enemy).init(allocator), .items = std.ArrayList(item.Item).init(allocator), .main_menu_ui = ui.MainMenuUI.init(), .pause_menu_ui = ui.PauseMenuUI.init(), .game_over_menu_ui = ui.GameOverUI.init(), .hud = undefined, .camera = undefined };
     }
     pub fn deinit(self: *Game) void {
         rl.closeWindow();
@@ -160,11 +160,12 @@ pub const Game = struct {
                         // if current tile contains item, pick it up
                         const item_position = self.getItemAtCurrentPosition();
                         if (item_position != null) {
-                            const i = &self.items.items[item_position.?];
-                            // add to inventory
-                            // remove from items
+                            const i = self.items.items[item_position.?];
                             self.hud.addMessage("You picked up a {s}", .{i.name}, hud.HUDMessageType.Info) catch {};
-                            const can_remove_item = self.updateItem(i);
+                            const can_remove_item = self.updateItem(i) catch |err| {
+                                std.log.err("Error updating item: {}", .{err});
+                                return Error.UpdateFailed;
+                            };
                             if (can_remove_item) {
                                 _ = self.items.swapRemove(item_position.?);
                             }
@@ -234,7 +235,7 @@ pub const Game = struct {
             .y = available_height / 2.0,
         };
     }
-    fn updateItem(self: *Game, i: *item.Item) bool {
+    fn updateItem(self: *Game, i: item.Item) !bool {
         // Consume
         if (i.isConsumable()) {
             if (i.getConsumableData()) |consumable_data| {
@@ -242,10 +243,12 @@ pub const Game = struct {
                 if (i.charges == 1) {
                     return true;
                 }
-                i.charges -= 1;
+                //i.charges -= 1;
             }
+        } else if (i.isEquippable()) {
+            try self.player.addItemToInventory(i);
+            return true;
         }
-        // TODO: Equip
         return false;
     }
     fn reset(self: *Game) Error!void {
@@ -443,9 +446,10 @@ pub const Game = struct {
     fn checkEnemyHitByPlayer(self: *Game, player_target_pos: rl.Vector2) ?usize {
         for (self.enemies.items, 0..) |*enemy, i| {
             if (enemy.position.x == player_target_pos.x and enemy.position.y == player_target_pos.y) {
-                const combat_result = combat.simpleSubtraction(self.player.combat_component, &enemy.combat_component);
+                const player_combat_component = self.player.combatComponentWithBonuses();
+                const combat_result = combat.simpleSubtraction(player_combat_component, &enemy.combat_component);
 
-                self.hud.addMessage("You hit the {s} for {} damage!", .{enemy.name, combat_result.damage_dealt}, hud.HUDMessageType.Combat) catch {};
+                self.hud.addMessage("You hit the {s} for {} damage!", .{ enemy.name, combat_result.damage_dealt }, hud.HUDMessageType.Combat) catch {};
                 return i;
             }
         }
@@ -466,11 +470,13 @@ pub const Game = struct {
             const dy: f32 = self.player.position.y - enemy.position.y;
             const chebyshev_distance = @divFloor(@max(@abs(dx), @abs(dy)), self.tileset.tile_size);
             if (chebyshev_distance == 1.0) {
-                const combat_result = combat.simpleSubtraction(enemy.combat_component, &self.player.combat_component);
+                // TODO: change the behaviour of combat
+                var player_combat_component = self.player.combatComponentWithBonuses();
+                const combat_result = combat.simpleSubtraction(enemy.combat_component, &player_combat_component);
+                self.player.combat_component.hp = player_combat_component.hp;
                 // Add message to HUD
                 //defer self.allocator.free(damage_message);
-                self.hud.addMessage("{s} hits you for {} damage!", .{enemy.name, combat_result.damage_dealt}, hud.HUDMessageType.Damage) catch {};
-
+                self.hud.addMessage("{s} hits you for {} damage!", .{ enemy.name, combat_result.damage_dealt }, hud.HUDMessageType.Damage) catch {};
             } else if (chebyshev_distance >= threshold_distance) {
                 //debug.print("Enemy at ({},{}) doesn't move\n", .{ enemy.position.x, enemy.position.y });
             } else {

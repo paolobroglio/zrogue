@@ -47,10 +47,7 @@ pub const MainMenuUI = struct {
     quit_button: Button,
 
     pub fn init() MainMenuUI {
-        return MainMenuUI{ 
-            .play_button = Button.init(center_x - button_width / 2, center_y - button_spacing, button_width, button_height, "Play"), 
-            .quit_button = Button.init(center_x - button_width / 2, center_y + button_spacing, button_width, button_height, "Quit") 
-        };
+        return MainMenuUI{ .play_button = Button.init(center_x - button_width / 2, center_y - button_spacing, button_width, button_height, "Play"), .quit_button = Button.init(center_x - button_width / 2, center_y + button_spacing, button_width, button_height, "Quit") };
     }
 };
 
@@ -60,11 +57,10 @@ pub const PauseMenuUI = struct {
     main_menu_button: Button,
 
     pub fn init() PauseMenuUI {
-        return PauseMenuUI {
-            .resume_button = Button.init(center_x - button_width/2, center_y - button_spacing, button_width, button_height, "Resume"),
-            .options_button = Button.init(center_x - button_width/2, center_y, button_width, button_height, "Options"),
-            .main_menu_button = Button.init(center_x - button_width/2, center_y + button_spacing, button_width, button_height, "Main Menu"),
-           
+        return PauseMenuUI{
+            .resume_button = Button.init(center_x - button_width / 2, center_y - button_spacing, button_width, button_height, "Resume"),
+            .options_button = Button.init(center_x - button_width / 2, center_y, button_width, button_height, "Options"),
+            .main_menu_button = Button.init(center_x - button_width / 2, center_y + button_spacing, button_width, button_height, "Main Menu"),
         };
     }
 };
@@ -74,9 +70,9 @@ pub const GameOverUI = struct {
     main_menu_button: Button,
 
     pub fn init() GameOverUI {
-        return GameOverUI {
-            .restart_button = Button.init(center_x - button_width/2, center_y - button_spacing/2, button_width, button_height, "Restart"),
-            .main_menu_button = Button.init(center_x - button_width/2, center_y + button_spacing/2, button_width, button_height, "Main Menu"),
+        return GameOverUI{
+            .restart_button = Button.init(center_x - button_width / 2, center_y - button_spacing / 2, button_width, button_height, "Restart"),
+            .main_menu_button = Button.init(center_x - button_width / 2, center_y + button_spacing / 2, button_width, button_height, "Main Menu"),
         };
     }
 };
