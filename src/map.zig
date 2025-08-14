@@ -1,6 +1,8 @@
 const std = @import("std");
 const rl = @import("raylib");
 const enemy = @import("enemy.zig");
+const item = @import("item.zig");
+const probability = @import("probability.zig");
 
 const Error = error{MapNotInitialized};
 
@@ -139,7 +141,7 @@ pub const Map = struct {
         }
     }
 
-    pub fn generate(allocator: std.mem.Allocator, width: i32, height: i32, enemies: *std.ArrayList(enemy.Enemy)) !Map {
+    pub fn generate(allocator: std.mem.Allocator, width: i32, height: i32, enemies: *std.ArrayList(enemy.Enemy), items: *std.ArrayList(item.Item)) !Map {
         var game_map = try init(allocator, width, height);
 
         const max_rooms: i32 = 30;
@@ -180,9 +182,37 @@ pub const Map = struct {
                 try enemies.append(new_enemy);
             }
 
+            if (std.crypto.random.intRangeAtMost(u8, 1, 100) <= 60) {
+                // Get a random walkable position inside the room
+                const item_pos = getRandomWalkablePositionInRoom(new_room);
+
+                // 70% chance for potion, 30% chance for sword
+                const roll = std.crypto.random.intRangeAtMost(u8, 1, 100);
+                const new_item = if (roll <= 40)
+                    item.Item.healthPotion(item_pos.scale(16.0)) // Scale to world coordinates
+                else if (roll <= 70)
+                    item.Item.sword(item_pos.scale(16.0))
+                else
+                    item.Item.leatherHelmet(item_pos.scale(16.0));
+
+                try items.append(new_item); // Assuming you have an items ArrayList
+            }
+
             try game_map.rooms.append(new_room);
         }
+
         return game_map;
+    }
+
+    fn getRandomWalkablePositionInRoom(room: Room) rl.Vector2 {
+        // Get random position within room bounds (excluding walls)
+        const inner_x = std.crypto.random.intRangeAtMost(i32, room.x + 1, room.x + room.width - 2);
+        const inner_y = std.crypto.random.intRangeAtMost(i32, room.y + 1, room.y + room.height - 2);
+
+        return rl.Vector2{
+            .x = @floatFromInt(inner_x),
+            .y = @floatFromInt(inner_y),
+        };
     }
 
     pub fn tunnelBetween(self: *Map, pointA: rl.Vector2, pointB: rl.Vector2) void {

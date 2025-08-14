@@ -6,10 +6,12 @@ const tileset = @import("tileset.zig");
 const fov = @import("fov.zig");
 const enmy = @import("enemy.zig");
 const plr = @import("player.zig");
+const item = @import("item.zig");
 const rl = @import("raylib");
 const combat = @import("combat.zig");
 const ui = @import("ui.zig");
 const hud = @import("hud.zig");
+const probability = @import("probability.zig");
 
 pub const Error = error{ InitializationFailed, DeinitializationFailed, RunFailed, InputHandlingFailed, RenderingFailed, UpdateFailed };
 
@@ -39,6 +41,7 @@ pub const Game = struct {
     current_turn: Turn,
     player: plr.Player,
     enemies: std.ArrayList(enmy.Enemy),
+    items: std.ArrayList(item.Item),
 
     main_menu_ui: ui.MainMenuUI,
     game_over_menu_ui: ui.GameOverUI,
@@ -48,7 +51,7 @@ pub const Game = struct {
     camera: rl.Camera2D,
 
     pub fn init(allocator: std.mem.Allocator) Game {
-        return Game{ .allocator = allocator, .window_width = 1280, .window_height = 800, .vsync = true, .highdpi = true, .fps = 60, .is_running = false, .game_state = GameState.MainMenu, .asset_store = as.AssetStore.init(allocator), .game_map = undefined, .tileset = undefined, .tileset_texture = undefined, .visible_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .visited_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .current_turn = Turn.Player, .player = plr.Player.init(rl.Vector2.zero(), '@'), .enemies = std.ArrayList(enmy.Enemy).init(allocator), .main_menu_ui = ui.MainMenuUI.init(), .pause_menu_ui = ui.PauseMenuUI.init(), .game_over_menu_ui = ui.GameOverUI.init(), .hud = undefined, .camera = undefined };
+        return Game{ .allocator = allocator, .window_width = 1280, .window_height = 800, .vsync = true, .highdpi = true, .fps = 60, .is_running = false, .game_state = GameState.MainMenu, .asset_store = as.AssetStore.init(allocator), .game_map = undefined, .tileset = undefined, .tileset_texture = undefined, .visible_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .visited_tiles_points = std.AutoHashMap(fov.Point, void).init(allocator), .current_turn = Turn.Player, .player = plr.Player.init(allocator, rl.Vector2.zero(), '@'), .enemies = std.ArrayList(enmy.Enemy).init(allocator), .items = std.ArrayList(item.Item).init(allocator), .main_menu_ui = ui.MainMenuUI.init(), .pause_menu_ui = ui.PauseMenuUI.init(), .game_over_menu_ui = ui.GameOverUI.init(), .hud = undefined, .camera = undefined };
     }
     pub fn deinit(self: *Game) void {
         rl.closeWindow();
@@ -57,9 +60,11 @@ pub const Game = struct {
         self.visited_tiles_points.deinit();
         self.visible_tiles_points.deinit();
         self.enemies.deinit();
+        self.items.deinit();
         self.hud.deinit();
     }
     fn setup(self: *Game) Error!void {
+        std.log.info("[ZRogue] Setup...", .{});
         rl.setConfigFlags(.{ .window_highdpi = self.highdpi, .window_resizable = false, .vsync_hint = self.vsync });
         rl.initWindow(self.window_width, self.window_height, "ZRogue");
         rl.setTargetFPS(self.fps);
@@ -128,7 +133,7 @@ pub const Game = struct {
                 }
             },
             GameState.Playing => {
-                if (rl.isKeyPressed(.p)) {
+                if (rl.isKeyPressed(.m)) {
                     self.game_state = GameState.PauseMenu;
                     return;
                 }
@@ -150,6 +155,21 @@ pub const Game = struct {
                     if (rl.isKeyPressed(.down)) {
                         target_position.y += tile_size;
                         self.current_turn = Turn.Enemy;
+                    }
+                    if (rl.isKeyPressed(.p)) {
+                        // if current tile contains item, pick it up
+                        const item_position = self.getItemAtCurrentPosition();
+                        if (item_position != null) {
+                            const i = self.items.items[item_position.?];
+                            self.hud.addMessage("You picked up a {s}", .{i.name}, hud.HUDMessageType.Info) catch {};
+                            const can_remove_item = self.updateItem(i) catch |err| {
+                                std.log.err("Error updating item: {}", .{err});
+                                return Error.UpdateFailed;
+                            };
+                            if (can_remove_item) {
+                                _ = self.items.swapRemove(item_position.?);
+                            }
+                        }
                     }
                     const enemy_hit = self.checkEnemyHitByPlayer(target_position);
                     if (enemy_hit != null) {
@@ -212,8 +232,24 @@ pub const Game = struct {
         self.camera.target = self.player.position;
         self.camera.offset = rl.Vector2{
             .x = @as(f32, @floatFromInt(self.window_width)) / 2.0,
-            .y = available_height / 2.0, // Center in available space above HUD
+            .y = available_height / 2.0,
         };
+    }
+    fn updateItem(self: *Game, i: item.Item) !bool {
+        // Consume
+        if (i.isConsumable()) {
+            if (i.getConsumableData()) |consumable_data| {
+                self.player.combat_component.addHpClamped(consumable_data.healing_value);
+                if (i.charges == 1) {
+                    return true;
+                }
+                //i.charges -= 1;
+            }
+        } else if (i.isEquippable()) {
+            try self.player.addItemToInventory(i);
+            return true;
+        }
+        return false;
     }
     fn reset(self: *Game) Error!void {
         self.game_map.destroy();
@@ -284,7 +320,6 @@ pub const Game = struct {
         self.main_menu_ui.play_button.render();
         self.main_menu_ui.quit_button.render();
 
-        // Instructions
         const instructions = "Press ENTER to play or ESC to quit";
         const inst_font_size = 16;
         const inst_width = rl.measureText(instructions, inst_font_size);
@@ -322,6 +357,19 @@ pub const Game = struct {
             }
         }
 
+        // DRAW ITEMS
+        for (self.items.items) |i| {
+            const item_tile_coordinates = self.tileset.getTileCoordinates(i.glyph) catch |err| {
+                std.log.err("Error getting texture coordinates for item: {}", .{err});
+                return Error.RenderingFailed;
+            };
+            const tile_position = self.worldPositionToTilePosition(i.position);
+            const item_dest_rect = rl.Rectangle{ .x = i.position.x, .y = i.position.y, .height = self.tileset.tile_size, .width = self.tileset.tile_size };
+            if (self.visible_tiles_points.contains(tile_position)) {
+                rl.drawTexturePro(self.tileset_texture, item_tile_coordinates.rect, item_dest_rect, .{ .x = 0, .y = 0 }, 0.0, rl.Color.green);
+            }
+        }
+
         // DRAW MAP
         for (self.game_map.tiles.items, 0..) |tile, index| {
             const map_width: usize = @intCast(self.game_map.width);
@@ -353,7 +401,8 @@ pub const Game = struct {
         self.hud.render(self.window_width, self.window_height, self.player.combat_component.hp, self.player.combat_component.max_hp);
     }
     fn startNewGame(self: *Game) Error!void {
-        self.game_map = map.Map.generate(self.allocator, 80, 50, &self.enemies) catch |err| {
+        std.log.info("[ZRogue] Starting new game...", .{});
+        self.game_map = map.Map.generate(self.allocator, 80, 50, &self.enemies, &self.items) catch |err| {
             std.log.err("Error generating map: {}", .{err});
             return Error.InitializationFailed;
         };
@@ -362,6 +411,8 @@ pub const Game = struct {
             return Error.InitializationFailed;
         };
         self.player.position = rl.Vector2{ .x = starting_room.center().x * self.tileset.tile_size, .y = starting_room.center().y * self.tileset.tile_size };
+        probability.initRandom();
+        std.log.info("[ZRogue] Game started", .{});
     }
     fn renderPauseMenu(self: *Game) Error!void {
         // Semi-transparent overlay
@@ -395,30 +446,118 @@ pub const Game = struct {
     fn checkEnemyHitByPlayer(self: *Game, player_target_pos: rl.Vector2) ?usize {
         for (self.enemies.items, 0..) |*enemy, i| {
             if (enemy.position.x == player_target_pos.x and enemy.position.y == player_target_pos.y) {
-                const combat_result = combat.simpleSubtraction(self.player.combat_component, &enemy.combat_component);
+                const player_combat_component = self.player.combatComponentWithBonuses();
+                const combat_result = combat.simpleSubtraction(player_combat_component, &enemy.combat_component);
 
-                self.hud.addMessage("You hit the enemy for {} damage!", .{combat_result.damage_dealt}, hud.HUDMessageType.Combat) catch {};
+                self.hud.addMessage("You hit the {s} for {} damage!", .{ enemy.name, combat_result.damage_dealt }, hud.HUDMessageType.Combat) catch {};
                 return i;
             }
         }
         return null;
     }
+    fn getItemAtCurrentPosition(self: *Game) ?usize {
+        for (self.items.items, 0..) |i, idx| {
+            if (i.position.x == self.player.position.x and i.position.y == self.player.position.y) {
+                return idx;
+            }
+        }
+        return null;
+    }
+    fn isPositionWalkable(self: *Game, pos: rl.Vector2) bool {
+        const tile_pos = self.worldPositionToTilePosition(pos);
+        const tile = self.game_map.getTile(tile_pos.x, tile_pos.y);
+        if (tile == null or !tile.?.walkable) {
+            return false;
+        }
+        if (pos.x == self.player.position.x and pos.y == self.player.position.y) {
+            return false;
+        }
+        for (self.enemies.items) |other_enemy| {
+            if (other_enemy.position.x == pos.x and other_enemy.position.y == pos.y) {
+                return false;
+            }
+        }
+        return true;
+    }
+    fn getAdjacentWalkablePositions(self: *Game, current_pos: rl.Vector2, allocator: std.mem.Allocator) !std.ArrayList(rl.Vector2) {
+        var positions = std.ArrayList(rl.Vector2).init(allocator);
+        const tile_size = self.tileset.tile_size;
+
+        // 8 directions: up, down, left, right
+        const directions = [_]rl.Vector2{
+            rl.Vector2{ .x = 0, .y = -tile_size }, // Up
+            rl.Vector2{ .x = 0, .y = tile_size }, // Down
+            rl.Vector2{ .x = -tile_size, .y = 0 }, // Left
+            rl.Vector2{ .x = tile_size, .y = 0 }, // Right
+        };
+
+        for (directions) |direction| {
+            const new_pos = rl.Vector2{
+                .x = current_pos.x + direction.x,
+                .y = current_pos.y + direction.y,
+            };
+
+            if (self.isPositionWalkable(new_pos)) {
+                try positions.append(new_pos);
+            }
+        }
+
+        return positions;
+    }
+    fn moveToward(current_pos: rl.Vector2, target_pos: rl.Vector2, tile_size: f32) rl.Vector2 {
+        const dx = target_pos.x - current_pos.x;
+        const dy = target_pos.y - current_pos.y;
+
+        var move_x: f32 = 0;
+        var move_y: f32 = 0;
+
+        if (dx > 0) move_x = tile_size;
+        if (dx < 0) move_x = -tile_size;
+        if (dy > 0) move_y = tile_size;
+        if (dy < 0) move_y = -tile_size;
+
+        return rl.Vector2{
+            .x = current_pos.x + move_x,
+            .y = current_pos.y + move_y,
+        };
+    }
+    fn moveEnemyRandomly(self: *Game, enemy: *enmy.Enemy) !void {
+        const adjacent_positions = try self.getAdjacentWalkablePositions(enemy.position, self.allocator);
+        defer adjacent_positions.deinit();
+
+        if (adjacent_positions.items.len > 0) {
+            // 70% chance to move, 30% chance to stay still
+            if (std.crypto.random.intRangeAtMost(u8, 1, 100) <= 70) {
+                const random_index = std.crypto.random.intRangeAtMost(usize, 0, adjacent_positions.items.len - 1);
+                enemy.position = adjacent_positions.items[random_index];
+            }
+        }
+    }
     fn executeEnemyTurn(self: *Game) void {
         const threshold_distance: f32 = 5.0;
-        for (self.enemies.items) |enemy| {
+        const sight_range: f32 = 8.0;
+
+        for (self.enemies.items) |*enemy| {
             const dx: f32 = self.player.position.x - enemy.position.x;
             const dy: f32 = self.player.position.y - enemy.position.y;
             const chebyshev_distance = @divFloor(@max(@abs(dx), @abs(dy)), self.tileset.tile_size);
+            const enemy_tile_pos = self.worldPositionToTilePosition(enemy.position);
+            const can_see_player = self.visible_tiles_points.contains(enemy_tile_pos) or chebyshev_distance <= sight_range;
             if (chebyshev_distance == 1.0) {
-                const combat_result = combat.simpleSubtraction(enemy.combat_component, &self.player.combat_component);
-                // Add message to HUD
-                //defer self.allocator.free(damage_message);
-                self.hud.addMessage("The enemy hits you for {} damage!", .{combat_result.damage_dealt}, hud.HUDMessageType.Damage) catch {};
-
-            } else if (chebyshev_distance >= threshold_distance) {
-                //debug.print("Enemy at ({},{}) doesn't move\n", .{ enemy.position.x, enemy.position.y });
+                // TODO: change the behaviour of combat
+                var player_combat_component = self.player.combatComponentWithBonuses();
+                const combat_result = combat.simpleSubtraction(enemy.combat_component, &player_combat_component);
+                self.player.combat_component.hp = player_combat_component.hp;
+                self.hud.addMessage("{s} hits you for {} damage!", .{ enemy.name, combat_result.damage_dealt }, hud.HUDMessageType.Damage) catch {};
+            } else if (can_see_player and chebyshev_distance <= threshold_distance) {
+                const target_pos = moveToward(enemy.position, self.player.position, self.tileset.tile_size);
+                if (self.isPositionWalkable(target_pos)) {
+                    enemy.position = target_pos;
+                } else {
+                    self.moveEnemyRandomly(enemy) catch {};
+                }
             } else {
-                //TODO: make enemy move toward the player
+                self.moveEnemyRandomly(enemy) catch {};
             }
         }
     }

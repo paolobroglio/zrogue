@@ -14,6 +14,10 @@ pub const CombatComponent = struct {
         self.hp = @max(0, @min(hp, self.max_hp));
     }
 
+    pub fn addHpClamped(self: *CombatComponent, hp_to_add: i8) void {
+        self.hp = @max(0, @min(self.hp + hp_to_add, self.max_hp));
+    }
+
     pub fn isDead(self: *const CombatComponent) bool {
         return self.hp <= 0;
     }
