@@ -463,24 +463,101 @@ pub const Game = struct {
         }
         return null;
     }
+    fn isPositionWalkable(self: *Game, pos: rl.Vector2) bool {
+        const tile_pos = self.worldPositionToTilePosition(pos);
+        const tile = self.game_map.getTile(tile_pos.x, tile_pos.y);
+        if (tile == null or !tile.?.walkable) {
+            return false;
+        }
+        if (pos.x == self.player.position.x and pos.y == self.player.position.y) {
+            return false;
+        }
+        for (self.enemies.items) |other_enemy| {
+            if (other_enemy.position.x == pos.x and other_enemy.position.y == pos.y) {
+                return false;
+            }
+        }
+        return true;
+    }
+    fn getAdjacentWalkablePositions(self: *Game, current_pos: rl.Vector2, allocator: std.mem.Allocator) !std.ArrayList(rl.Vector2) {
+        var positions = std.ArrayList(rl.Vector2).init(allocator);
+        const tile_size = self.tileset.tile_size;
+
+        // 8 directions: up, down, left, right
+        const directions = [_]rl.Vector2{
+            rl.Vector2{ .x = 0, .y = -tile_size }, // Up
+            rl.Vector2{ .x = 0, .y = tile_size }, // Down
+            rl.Vector2{ .x = -tile_size, .y = 0 }, // Left
+            rl.Vector2{ .x = tile_size, .y = 0 }, // Right
+        };
+
+        for (directions) |direction| {
+            const new_pos = rl.Vector2{
+                .x = current_pos.x + direction.x,
+                .y = current_pos.y + direction.y,
+            };
+
+            if (self.isPositionWalkable(new_pos)) {
+                try positions.append(new_pos);
+            }
+        }
+
+        return positions;
+    }
+    fn moveToward(current_pos: rl.Vector2, target_pos: rl.Vector2, tile_size: f32) rl.Vector2 {
+        const dx = target_pos.x - current_pos.x;
+        const dy = target_pos.y - current_pos.y;
+
+        var move_x: f32 = 0;
+        var move_y: f32 = 0;
+
+        if (dx > 0) move_x = tile_size;
+        if (dx < 0) move_x = -tile_size;
+        if (dy > 0) move_y = tile_size;
+        if (dy < 0) move_y = -tile_size;
+
+        return rl.Vector2{
+            .x = current_pos.x + move_x,
+            .y = current_pos.y + move_y,
+        };
+    }
+    fn moveEnemyRandomly(self: *Game, enemy: *enmy.Enemy) !void {
+        const adjacent_positions = try self.getAdjacentWalkablePositions(enemy.position, self.allocator);
+        defer adjacent_positions.deinit();
+
+        if (adjacent_positions.items.len > 0) {
+            // 70% chance to move, 30% chance to stay still
+            if (std.crypto.random.intRangeAtMost(u8, 1, 100) <= 70) {
+                const random_index = std.crypto.random.intRangeAtMost(usize, 0, adjacent_positions.items.len - 1);
+                enemy.position = adjacent_positions.items[random_index];
+            }
+        }
+    }
     fn executeEnemyTurn(self: *Game) void {
         const threshold_distance: f32 = 5.0;
-        for (self.enemies.items) |enemy| {
+        const sight_range: f32 = 8.0;
+
+        for (self.enemies.items) |*enemy| {
             const dx: f32 = self.player.position.x - enemy.position.x;
             const dy: f32 = self.player.position.y - enemy.position.y;
             const chebyshev_distance = @divFloor(@max(@abs(dx), @abs(dy)), self.tileset.tile_size);
+            const enemy_tile_pos = self.worldPositionToTilePosition(enemy.position);
+            const can_see_player = self.visible_tiles_points.contains(enemy_tile_pos) or chebyshev_distance <= sight_range;
             if (chebyshev_distance == 1.0) {
                 // TODO: change the behaviour of combat
                 var player_combat_component = self.player.combatComponentWithBonuses();
                 const combat_result = combat.simpleSubtraction(enemy.combat_component, &player_combat_component);
                 self.player.combat_component.hp = player_combat_component.hp;
-                // Add message to HUD
-                //defer self.allocator.free(damage_message);
                 self.hud.addMessage("{s} hits you for {} damage!", .{ enemy.name, combat_result.damage_dealt }, hud.HUDMessageType.Damage) catch {};
-            } else if (chebyshev_distance >= threshold_distance) {
-                //debug.print("Enemy at ({},{}) doesn't move\n", .{ enemy.position.x, enemy.position.y });
+            } else if (can_see_player and chebyshev_distance <= threshold_distance) {
+                const target_pos = moveToward(enemy.position, self.player.position, self.tileset.tile_size);
+                if (self.isPositionWalkable(target_pos)) {
+                    enemy.position = target_pos;
+                } else {
+                    self.moveEnemyRandomly(enemy) catch {};
+                }
             } else {
-                //TODO: make enemy move toward the player
+                self.moveEnemyRandomly(enemy) catch {};
             }
         }
     }
